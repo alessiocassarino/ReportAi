@@ -79,6 +79,12 @@
 			<artifactId>spring-ai-tika-document-reader</artifactId>
 		</dependency>
 
+		<dependency>
+			<groupId>org.apache.poi</groupId>
+			<artifactId>poi-ooxml</artifactId>
+			<version>5.4.1</version>
+		</dependency>
+
 		<!-- Vector store advisor -->
 		<dependency>
 			<groupId>org.springframework.ai</groupId>
