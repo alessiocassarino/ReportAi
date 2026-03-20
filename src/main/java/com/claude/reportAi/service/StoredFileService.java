@@ -126,19 +126,30 @@ public class StoredFileService {
 
         Document whole = new Document(text, Map.of(
                 "fileId", entity.getId().toString(),
-                "filename", entity.getOriginalFilename(),
+                "filename", Objects.toString(entity.getOriginalFilename(), "unknown"),
                 "contentType", Objects.toString(entity.getContentType(), "unknown"),
-                "sha256", entity.getSha256()
+                "sha256", Objects.toString(entity.getSha256(), "unknown")
         ));
 
-        TokenTextSplitter splitter = new TokenTextSplitter();
+        TokenTextSplitter splitter = new TokenTextSplitter(
+                300,   // chunk size
+                50,    // overlap
+                10,    // min chunk size chars
+                1000,  // max chunk size chars
+                true   // keep separator
+        );
+
         List<Document> chunks = splitter.split(List.of(whole));
 
         AtomicInteger idx = new AtomicInteger(0);
         return chunks.stream()
                 .map(d -> {
-                    Map<String, Object> md = new HashMap<>(d.getMetadata());
-                    md.put("chunkIndex", idx.getAndIncrement());
+                    Map<String, Object> md = new HashMap<>();
+                    md.put("fileId", Objects.toString(d.getMetadata().get("fileId"), ""));
+                    md.put("filename", Objects.toString(d.getMetadata().get("filename"), ""));
+                    md.put("contentType", Objects.toString(d.getMetadata().get("contentType"), ""));
+                    md.put("sha256", Objects.toString(d.getMetadata().get("sha256"), ""));
+                    md.put("chunkIndex", String.valueOf(idx.getAndIncrement()));
                     return new Document(d.getText(), md);
                 })
                 .toList();

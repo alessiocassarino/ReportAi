@@ -18,12 +18,4 @@ public class GlobalExceptionHandler {
                 "details", ex.getMessage()
         ));
     }
-
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<Map<String, Object>> handleGeneric(Exception ex) {
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(Map.of(
-                "error", "Errore interno",
-                "details", ex.getMessage()
-        ));
-    }
 }
