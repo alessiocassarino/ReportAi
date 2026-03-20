@@ -79,30 +79,24 @@ public class ReportOrchestratorService {
             webSearchWasUsed = true;
         }
 
-        boolean exportAsCsv = false;
-        if ("CSV".equalsIgnoreCase(requestedFormat)) {
-            exportAsCsv = true;
-        }
+        boolean exportAsCsv = "CSV".equalsIgnoreCase(requestedFormat);
+        boolean exportAsXlsx = "XLSX".equalsIgnoreCase(requestedFormat);
+        boolean exportAsDocx = "DOCX".equalsIgnoreCase(requestedFormat) || "WORD".equalsIgnoreCase(requestedFormat);
 
-        boolean exportAsXlsx = false;
-        if ("XLSX".equalsIgnoreCase(requestedFormat)) {
-            exportAsXlsx = true;
-        }
+        boolean exportRequired = exportAsCsv || exportAsXlsx || exportAsDocx;
 
-        boolean exportRequired = false;
-        if (exportAsCsv || exportAsXlsx) {
-            exportRequired = true;
-        }
-
-        log.info("Valutazione export -> exportAsCsv={}, exportAsXlsx={}, exportRequired={}",
+        log.info("Valutazione export -> exportAsCsv={}, exportAsXlsx={}, exportAsDocx={}, exportRequired={}",
                 exportAsCsv,
                 exportAsXlsx,
+                exportAsDocx,
                 exportRequired);
 
         if (exportRequired) {
-            log.info("Avvio esportazione report in formato '{}'", requestedFormat);
+            String normalizedFormat = exportAsDocx ? "DOCX" : requestedFormat;
 
-            String exportedFileName = reportExportService.export(generatedAnswer, requestedFormat);
+            log.info("Avvio esportazione report in formato '{}'", normalizedFormat);
+
+            String exportedFileName = reportExportService.export(generatedAnswer, normalizedFormat);
             String generatedDownloadUrl = "/api/reports/download/" + exportedFileName;
 
             log.info("Esportazione completata -> fileName='{}', downloadUrl='{}'",
