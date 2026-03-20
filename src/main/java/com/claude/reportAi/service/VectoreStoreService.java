@@ -1,5 +1,6 @@
 package com.claude.reportAi.service;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
@@ -10,14 +11,14 @@ import java.util.List;
 import java.util.Map;
 
 @Service
+@RequiredArgsConstructor
 @Slf4j
 public class VectoreStoreService {
 
-    private final VectorStore vectorStore;
+    private static final int TOP_K = 5;
+    private static final double SIMILARITY_THRESHOLD = 0.4;
 
-    public VectoreStoreService(VectorStore vectorStore) {
-        this.vectorStore = vectorStore;
-    }
+    private final VectorStore vectorStore;
 
     public List<Document> searchRelevantDocuments(String query) {
         log.info("Avvio ricerca nel Vector Store");
@@ -25,15 +26,17 @@ public class VectoreStoreService {
 
         SearchRequest request = SearchRequest.builder()
                 .query(query)
-                .topK(5)
-                .similarityThreshold(0.4)
+                .topK(TOP_K)
+                .similarityThreshold(SIMILARITY_THRESHOLD)
                 .build();
 
-        log.info("Parametri ricerca Vector Store -> topK=5, similarityThreshold=0.4");
+        log.info("Parametri ricerca Vector Store -> topK={}, similarityThreshold={}",
+                TOP_K,
+                SIMILARITY_THRESHOLD);
 
         List<Document> results = vectorStore.similaritySearch(request);
-
         int resultCount = results != null ? results.size() : 0;
+
         log.info("Ricerca Vector Store completata -> numero documenti trovati={}", resultCount);
 
         if (results == null || results.isEmpty()) {
@@ -41,6 +44,11 @@ public class VectoreStoreService {
             return results;
         }
 
+        logRetrievedDocuments(results);
+        return results;
+    }
+
+    private void logRetrievedDocuments(List<Document> results) {
         for (int i = 0; i < results.size(); i++) {
             Document doc = results.get(i);
             String textPreview = doc != null ? safe(doc.getText()) : null;
@@ -49,8 +57,6 @@ public class VectoreStoreService {
             log.info("Documento [{}] trovato -> preview='{}'", i + 1, textPreview);
             log.info("Documento [{}] metadata -> {}", i + 1, metadata);
         }
-
-        return results;
     }
 
     private String safe(String text) {

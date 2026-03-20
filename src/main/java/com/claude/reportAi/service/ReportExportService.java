@@ -27,45 +27,37 @@ import java.util.UUID;
 @Slf4j
 public class ReportExportService {
 
+    private static final String FORMAT_JSON = "JSON";
+    private static final String FORMAT_CSV = "CSV";
+    private static final String FORMAT_XLSX = "XLSX";
+    private static final String FORMAT_DOCX = "DOCX";
+
+    private static final String DEFAULT_SHEET_NAME = "Report";
+    private static final String FALLBACK_CONTENT_HEADER = "Contenuto Report";
+    private static final String NO_CONTENT_MESSAGE = "Nessun contenuto disponibile";
+
     @Value("${app.reports.root:./data/reports}")
     private String reportsRoot;
 
     public String export(String content, String format) {
         try {
-            Path exportDir = Path.of(reportsRoot);
-            Files.createDirectories(exportDir);
-
+            Path exportDir = ensureExportDirectory();
             String normalizedFormat = normalizeFormat(format);
+
             log.info("Avvio export report -> format='{}'", normalizedFormat);
 
             ReportTableResponse table = tryExtractTable(content);
 
-            if ("CSV".equalsIgnoreCase(normalizedFormat)) {
-                if (hasTableData(table)) {
-                    log.info("Rilevata struttura tabellare nel contenuto. Export CSV tabellare.");
-                    return exportCsv(table);
-                }
-
-                log.info("Nessuna tabella rilevata. Export CSV testuale di fallback.");
-                return exportPlainTextCsv(content);
-            }
-
-            if ("XLSX".equalsIgnoreCase(normalizedFormat)) {
-                if (hasTableData(table)) {
-                    log.info("Rilevata struttura tabellare nel contenuto. Export XLSX tabellare.");
-                    return exportXlsx(table);
-                }
-
-                log.info("Nessuna tabella rilevata. Export XLSX testuale di fallback.");
-                return exportPlainTextXlsx(content);
-            }
-
-            if ("DOCX".equalsIgnoreCase(normalizedFormat)) {
-                log.info("Export DOCX del contenuto testuale.");
-                return exportDocx(content);
-            }
-
-            throw new IllegalArgumentException("Formato non supportato: " + format);
+            return switch (normalizedFormat) {
+                case FORMAT_CSV -> hasTableData(table)
+                        ? exportCsv(table, exportDir)
+                        : exportPlainTextCsv(content, exportDir);
+                case FORMAT_XLSX -> hasTableData(table)
+                        ? exportXlsx(table, exportDir)
+                        : exportPlainTextXlsx(content, exportDir);
+                case FORMAT_DOCX -> exportDocx(content, exportDir);
+                default -> throw new IllegalArgumentException("Formato non supportato: " + format);
+            };
 
         } catch (Exception e) {
             log.error("Errore durante export report: {}", e.getMessage(), e);
@@ -87,119 +79,6 @@ public class ReportExportService {
         }
     }
 
-    public String exportCsv(ReportTableResponse table) {
-        try {
-            Path exportDir = Path.of(reportsRoot);
-            Files.createDirectories(exportDir);
-
-            String fileName = UUID.randomUUID() + ".csv";
-            Path path = exportDir.resolve(fileName);
-
-            try (BufferedWriter writer = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
-                if (table.getHeaders() != null && !table.getHeaders().isEmpty()) {
-                    writer.write(String.join(";", table.getHeaders().stream().map(this::escapeCsv).toList()));
-                    writer.newLine();
-                }
-
-                if (table.getRows() != null) {
-                    for (List<String> row : table.getRows()) {
-                        List<String> escaped = row.stream()
-                                .map(this::escapeCsv)
-                                .toList();
-                        writer.write(String.join(";", escaped));
-                        writer.newLine();
-                    }
-                }
-            }
-
-            log.info("Export CSV completato -> fileName='{}'", fileName);
-            return fileName;
-
-        } catch (IOException e) {
-            throw new IllegalStateException("Errore export CSV", e);
-        }
-    }
-
-    public String exportXlsx(ReportTableResponse table) {
-        try {
-            Path exportDir = Path.of(reportsRoot);
-            Files.createDirectories(exportDir);
-
-            String fileName = UUID.randomUUID() + ".xlsx";
-            Path path = exportDir.resolve(fileName);
-
-            try (Workbook workbook = new XSSFWorkbook();
-                 OutputStream os = Files.newOutputStream(path)) {
-
-                Sheet sheet = workbook.createSheet("Report");
-
-                int rowIndex = 0;
-
-                if (table.getHeaders() != null && !table.getHeaders().isEmpty()) {
-                    Row headerRow = sheet.createRow(rowIndex++);
-                    for (int i = 0; i < table.getHeaders().size(); i++) {
-                        headerRow.createCell(i).setCellValue(nullSafe(table.getHeaders().get(i)));
-                    }
-                }
-
-                if (table.getRows() != null) {
-                    for (List<String> rowData : table.getRows()) {
-                        Row row = sheet.createRow(rowIndex++);
-                        for (int i = 0; i < rowData.size(); i++) {
-                            row.createCell(i).setCellValue(nullSafe(rowData.get(i)));
-                        }
-                    }
-                }
-
-                int columnCount = table.getHeaders() != null && !table.getHeaders().isEmpty()
-                        ? table.getHeaders().size()
-                        : inferMaxColumns(table);
-
-                for (int i = 0; i < columnCount; i++) {
-                    sheet.autoSizeColumn(i);
-                }
-
-                workbook.write(os);
-            }
-
-            log.info("Export XLSX completato -> fileName='{}'", fileName);
-            return fileName;
-
-        } catch (IOException e) {
-            throw new IllegalStateException("Errore export XLSX", e);
-        }
-    }
-
-    public String exportDocx(String content) {
-        try {
-            Path exportDir = Path.of(reportsRoot);
-            Files.createDirectories(exportDir);
-
-            String fileName = UUID.randomUUID() + ".docx";
-            Path path = exportDir.resolve(fileName);
-
-            try (XWPFDocument document = new XWPFDocument();
-                 OutputStream os = Files.newOutputStream(path)) {
-
-                XWPFParagraph title = document.createParagraph();
-                title.createRun().setText("Report");
-
-                for (String paragraphText : splitParagraphs(content)) {
-                    XWPFParagraph paragraph = document.createParagraph();
-                    paragraph.createRun().setText(paragraphText);
-                }
-
-                document.write(os);
-            }
-
-            log.info("Export DOCX completato -> fileName='{}'", fileName);
-            return fileName;
-
-        } catch (IOException e) {
-            throw new IllegalStateException("Errore export DOCX", e);
-        }
-    }
-
     public String resolveContentType(String fileName) {
         String lower = fileName.toLowerCase();
 
@@ -218,47 +97,159 @@ public class ReportExportService {
         return "application/octet-stream";
     }
 
-    private String exportPlainTextCsv(String content) {
+    public String exportCsv(ReportTableResponse table) {
+        try {
+            return exportCsv(table, ensureExportDirectory());
+        } catch (IOException e) {
+            throw new IllegalStateException("Errore export CSV", e);
+        }
+    }
+
+    public String exportXlsx(ReportTableResponse table) {
+        try {
+            return exportXlsx(table, ensureExportDirectory());
+        } catch (IOException e) {
+            throw new IllegalStateException("Errore export XLSX", e);
+        }
+    }
+
+    public String exportDocx(String content) {
+        try {
+            return exportDocx(content, ensureExportDirectory());
+        } catch (IOException e) {
+            throw new IllegalStateException("Errore export DOCX", e);
+        }
+    }
+
+    private Path ensureExportDirectory() throws IOException {
+        Path exportDir = Path.of(reportsRoot);
+        Files.createDirectories(exportDir);
+        return exportDir;
+    }
+
+    private String exportCsv(ReportTableResponse table, Path exportDir) throws IOException {
+        String fileName = UUID.randomUUID() + ".csv";
+        Path path = exportDir.resolve(fileName);
+
+        try (BufferedWriter writer = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
+            if (table.getHeaders() != null && !table.getHeaders().isEmpty()) {
+                writer.write(String.join(";", table.getHeaders().stream().map(this::escapeCsv).toList()));
+                writer.newLine();
+            }
+
+            if (table.getRows() != null) {
+                for (List<String> row : table.getRows()) {
+                    List<String> escaped = row.stream()
+                            .map(this::escapeCsv)
+                            .toList();
+                    writer.write(String.join(";", escaped));
+                    writer.newLine();
+                }
+            }
+        }
+
+        log.info("Export CSV completato -> fileName='{}'", fileName);
+        return fileName;
+    }
+
+    private String exportXlsx(ReportTableResponse table, Path exportDir) throws IOException {
+        String fileName = UUID.randomUUID() + ".xlsx";
+        Path path = exportDir.resolve(fileName);
+
+        try (Workbook workbook = new XSSFWorkbook();
+             OutputStream os = Files.newOutputStream(path)) {
+
+            Sheet sheet = workbook.createSheet(DEFAULT_SHEET_NAME);
+            int rowIndex = 0;
+
+            if (table.getHeaders() != null && !table.getHeaders().isEmpty()) {
+                Row headerRow = sheet.createRow(rowIndex++);
+                for (int i = 0; i < table.getHeaders().size(); i++) {
+                    headerRow.createCell(i).setCellValue(nullSafe(table.getHeaders().get(i)));
+                }
+            }
+
+            if (table.getRows() != null) {
+                for (List<String> rowData : table.getRows()) {
+                    Row row = sheet.createRow(rowIndex++);
+                    for (int i = 0; i < rowData.size(); i++) {
+                        row.createCell(i).setCellValue(nullSafe(rowData.get(i)));
+                    }
+                }
+            }
+
+            int columnCount = table.getHeaders() != null && !table.getHeaders().isEmpty()
+                    ? table.getHeaders().size()
+                    : inferMaxColumns(table);
+
+            for (int i = 0; i < columnCount; i++) {
+                sheet.autoSizeColumn(i);
+            }
+
+            workbook.write(os);
+        }
+
+        log.info("Export XLSX completato -> fileName='{}'", fileName);
+        return fileName;
+    }
+
+    private String exportDocx(String content, Path exportDir) throws IOException {
+        String fileName = UUID.randomUUID() + ".docx";
+        Path path = exportDir.resolve(fileName);
+
+        try (XWPFDocument document = new XWPFDocument();
+             OutputStream os = Files.newOutputStream(path)) {
+
+            XWPFParagraph title = document.createParagraph();
+            title.createRun().setText("Report");
+
+            for (String paragraphText : splitParagraphs(content)) {
+                XWPFParagraph paragraph = document.createParagraph();
+                paragraph.createRun().setText(paragraphText);
+            }
+
+            document.write(os);
+        }
+
+        log.info("Export DOCX completato -> fileName='{}'", fileName);
+        return fileName;
+    }
+
+    private String exportPlainTextCsv(String content, Path exportDir) throws IOException {
         ReportTableResponse fallback = new ReportTableResponse();
-        fallback.setHeaders(List.of("Contenuto Report"));
+        fallback.setHeaders(List.of(FALLBACK_CONTENT_HEADER));
         fallback.setRows(splitLines(content).stream()
                 .map(line -> List.of(line))
                 .toList());
-        return exportCsv(fallback);
+
+        log.info("Nessuna tabella rilevata. Export CSV testuale di fallback.");
+        return exportCsv(fallback, exportDir);
     }
 
-    private String exportPlainTextXlsx(String content) {
-        try {
-            Path exportDir = Path.of(reportsRoot);
-            Files.createDirectories(exportDir);
+    private String exportPlainTextXlsx(String content, Path exportDir) throws IOException {
+        String fileName = UUID.randomUUID() + ".xlsx";
+        Path path = exportDir.resolve(fileName);
 
-            String fileName = UUID.randomUUID() + ".xlsx";
-            Path path = exportDir.resolve(fileName);
+        try (Workbook workbook = new XSSFWorkbook();
+             OutputStream os = Files.newOutputStream(path)) {
 
-            try (Workbook workbook = new XSSFWorkbook();
-                 OutputStream os = Files.newOutputStream(path)) {
+            Sheet sheet = workbook.createSheet(DEFAULT_SHEET_NAME);
 
-                Sheet sheet = workbook.createSheet("report");
+            Row headerRow = sheet.createRow(0);
+            headerRow.createCell(0).setCellValue(FALLBACK_CONTENT_HEADER);
 
-                Row headerRow = sheet.createRow(0);
-                headerRow.createCell(0).setCellValue("Contenuto Report");
-
-                List<String> lines = splitLines(content);
-                for (int i = 0; i < lines.size(); i++) {
-                    Row row = sheet.createRow(i + 1);
-                    row.createCell(0).setCellValue(lines.get(i));
-                }
-
-                sheet.autoSizeColumn(0);
-                workbook.write(os);
+            List<String> lines = splitLines(content);
+            for (int i = 0; i < lines.size(); i++) {
+                Row row = sheet.createRow(i + 1);
+                row.createCell(0).setCellValue(lines.get(i));
             }
 
-            log.info("Export XLSX fallback completato -> fileName='{}'", fileName);
-            return fileName;
-
-        } catch (IOException e) {
-            throw new IllegalStateException("Errore export XLSX fallback", e);
+            sheet.autoSizeColumn(0);
+            workbook.write(os);
         }
+
+        log.info("Export XLSX fallback completato -> fileName='{}'", fileName);
+        return fileName;
     }
 
     private ReportTableResponse tryExtractTable(String content) {
@@ -313,9 +304,11 @@ public class ReportExportService {
 
     private List<String> parseMarkdownRow(String row) {
         String trimmed = row.trim();
+
         if (trimmed.startsWith("|")) {
             trimmed = trimmed.substring(1);
         }
+
         if (trimmed.endsWith("|")) {
             trimmed = trimmed.substring(0, trimmed.length() - 1);
         }
@@ -333,7 +326,10 @@ public class ReportExportService {
     }
 
     private boolean isMarkdownSeparatorRow(String row) {
-        String normalized = row.replace("|", "").replace("-", "").replace(":", "").trim();
+        String normalized = row.replace("|", "")
+                .replace("-", "")
+                .replace(":", "")
+                .trim();
         return normalized.isEmpty();
     }
 
@@ -345,7 +341,7 @@ public class ReportExportService {
         }
 
         if (normalized.size() > expectedSize) {
-            return normalized.subList(0, expectedSize);
+            return new ArrayList<>(normalized.subList(0, expectedSize));
         }
 
         return normalized;
@@ -364,7 +360,7 @@ public class ReportExportService {
 
     private List<String> splitLines(String content) {
         if (content == null || content.isBlank()) {
-            return List.of("Nessun contenuto disponibile");
+            return List.of(NO_CONTENT_MESSAGE);
         }
 
         return content.lines()
@@ -375,7 +371,7 @@ public class ReportExportService {
 
     private List<String> splitParagraphs(String content) {
         if (content == null || content.isBlank()) {
-            return List.of("Nessun contenuto disponibile");
+            return List.of(NO_CONTENT_MESSAGE);
         }
 
         String normalized = content.replace("\r", "");
@@ -390,7 +386,7 @@ public class ReportExportService {
         }
 
         if (result.isEmpty()) {
-            result.add("Nessun contenuto disponibile");
+            result.add(NO_CONTENT_MESSAGE);
         }
 
         return result;
@@ -407,7 +403,7 @@ public class ReportExportService {
 
     private String normalizeFormat(String format) {
         if (format == null || format.isBlank()) {
-            return "JSON";
+            return FORMAT_JSON;
         }
         return format.trim().toUpperCase();
     }

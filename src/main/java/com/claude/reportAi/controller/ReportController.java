@@ -4,8 +4,8 @@ import com.claude.reportAi.dto.ReportRequest;
 import com.claude.reportAi.dto.ReportResponse;
 import com.claude.reportAi.service.ReportExportService;
 import com.claude.reportAi.service.ReportOrchestratorService;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -15,14 +15,12 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/reports")
+@RequiredArgsConstructor
 @Slf4j
 public class ReportController {
 
-    @Autowired
-    private ReportOrchestratorService reportOrchestratorService;
-
-    @Autowired
-    private ReportExportService reportExportService;
+    private final ReportOrchestratorService reportOrchestratorService;
+    private final ReportExportService reportExportService;
 
     @PostMapping("/generate")
     public ResponseEntity<ReportResponse> generate(@RequestBody ReportRequest request) {
