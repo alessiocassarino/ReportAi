@@ -7,4 +7,5 @@ public class ReportRequest {
     private String prompt;
     private String format; // JSON, CSV, XLSX
     private boolean allowWebSearch = true;
+    private Integer systemPromptId;
 }

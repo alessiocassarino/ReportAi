@@ -1,27 +1,34 @@
 package com.claude.reportAi.service;
 
+import com.claude.reportAi.entities.SystemPrompt;
+import com.claude.reportAi.repository.SystemPromptRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.document.Document;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 @Service
 @Slf4j
 public class ReportGenerationService {
 
-    private final ChatClient claudeChatClient;
+    @Autowired
+    private ChatClient claudeChatClient;
 
-    public ReportGenerationService(ChatClient claudeChatClient) {
-        this.claudeChatClient = claudeChatClient;
-    }
+    @Autowired
+    private SystemPromptRepository systemPromptRepository;
+
 
     public String generateReport(String userPrompt,
                                  List<Document> vectorDocs,
                                  List<String> webResults,
-                                 boolean foundInKnowledgeBase) {
+                                 boolean foundInKnowledgeBase,
+                                 Integer systemPromptId) {
 
         log.info("Avvio generazione report con modello AI");
         log.info("Input generazione -> foundInKnowledgeBase={}, vectorDocsCount={}, webResultsCount={}",
@@ -58,17 +65,10 @@ public class ReportGenerationService {
             knowledgeBaseAvailability = "NO";
         }
 
-        String systemPrompt = """
-            Sei un assistente professionale per la generazione di report aziendali.
-            Rispondi in italiano, con tono professionale, chiaro, dettagliato e strutturato.
-            Regole:
-            - Usa prioritariamente il knowledge base interno.
-            - Se il knowledge base non contiene informazioni sufficienti, dichiaralo esplicitamente.
-            - Se sono presenti risultati web, usali come integrazione esterna.
-            - Non inventare dati mancanti.
-            - Organizza la risposta in: sintesi, dettagli, osservazioni, conclusioni.
-            - Se richiesto un report tabellare, prepara i dati in modo compatibile con CSV/XLSX.
-            """;
+
+        String systemPrompt = systemPromptRepository.findById(systemPromptId)
+                .map(SystemPrompt::getPrompt)
+                .orElse(systemPromptRepository.findDefault());
 
         String userMessage = """
             Prompt utente:

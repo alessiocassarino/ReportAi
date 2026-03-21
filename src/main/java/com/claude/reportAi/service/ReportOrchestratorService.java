@@ -31,6 +31,7 @@ public class ReportOrchestratorService {
         String userPrompt = request.getPrompt();
         String requestedFormat = request.getFormat();
         boolean webSearchAllowed = request.isAllowWebSearch();
+        Integer systemPromptId = request.getSystemPromptId();
 
         log.info("Avvio orchestrazione report");
         log.info("Input elaborazione -> prompt='{}', format='{}', allowWebSearch={}",
@@ -56,7 +57,8 @@ public class ReportOrchestratorService {
                 userPrompt,
                 retrievedDocuments,
                 collectedWebResults,
-                informationFoundInKnowledgeBase
+                informationFoundInKnowledgeBase,
+                systemPromptId
         );
 
         log.info("Generazione report completata -> lunghezza risposta={} caratteri",
