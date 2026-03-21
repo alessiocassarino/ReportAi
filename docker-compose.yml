@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: reportai-postgres
+    environment:
+      POSTGRES_DB: vector_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: root
+    ports:
+      - "5400:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - reportai-network
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: reportai-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+    networks:
+      - reportai-network
+
+  reportai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: reportai-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/vector_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: root
+      SPRING_AI_ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      SPRING_AI_OLLAMA_BASE_URL: http://ollama:11434
+      WEB_SEARCH_API_KEY: ${WEB_SEARCH_API_KEY:}
+      APP_WEB_SEARCH_ENABLED: "false"
+      APP_WEB_SEARCH_PROVIDER: "NONE"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+      - ./data/uploads:/app/data/uploads
+      - ./data/reports:/app/data/reports
+      - ./data/templates:/app/data/templates
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health", "||", "exit", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - reportai-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  ollama_data:
+    driver: local
+
+networks:
+  reportai-network:
+    driver: bridge

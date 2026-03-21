@@ -1,6 +1,6 @@
 package com.claude.reportAi.entities;
 
-import com.claude.reportAi.Language;
+import com.claude.reportAi.constant.Language;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -25,6 +25,7 @@ public class SystemPrompt {
     @Column(nullable = false)
     private String prompt;
 
+    @Enumerated(EnumType.STRING)
     private Language language;
 
     @Column(name = "created_at", nullable = false, updatable = false)

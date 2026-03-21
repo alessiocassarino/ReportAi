@@ -1,7 +1,10 @@
 package com.claude.reportAi.service;
 
 import com.claude.reportAi.dto.DocumentUploadResponse;
+import com.claude.reportAi.dto.ExtractedMetadata;
+import com.claude.reportAi.entities.DocumentMetadata;
 import com.claude.reportAi.entities.StoredFile;
+import com.claude.reportAi.repository.DocumentMetadataRepository;
 import com.claude.reportAi.repository.StoredFileRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.ai.document.Document;
@@ -11,16 +14,17 @@ import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
+import org.springframework.core.io.ResourceLoader;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.core.io.ResourceLoader;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -32,13 +36,19 @@ public class StoredFileService {
     private StoredFileRepository storedFileRepository;
 
     @Autowired
+    private DocumentMetadataRepository documentMetadataRepository;
+
+    @Autowired
     private VectorStore vectorStore;
 
     @Autowired
     private ObjectMapper objectMapper;
 
     @Autowired
-    private  ResourceLoader resourceLoader;
+    private ResourceLoader resourceLoader;
+
+    @Autowired
+    private MetadataExtractionService metadataExtractionService;
 
     @Value("${app.storage.root}")
     private String storageRoot;
@@ -83,12 +93,39 @@ public class StoredFileService {
                     .extractionStatus("DONE")
                     .build();
 
-            storedFileRepository.save(entity);
+            StoredFile savedFile = storedFileRepository.save(entity);
 
-            List<Document> chunks = toChunks(entity, extraction.text());
-            vectorStore.add(chunks);
+            ExtractedMetadata extractedMetadata = metadataExtractionService.extract(
+                    savedFile.getOriginalFilename(),
+                    extraction.text(),
+                    savedFile.getContentType()
+            );
 
-            return new DocumentUploadResponse(entity.getId(), entity.getOriginalFilename(), "INDEXED");
+            DocumentMetadata documentMetadata = DocumentMetadata.builder()
+                    .storedFile(savedFile)
+                    .documentType(extractedMetadata.getDocumentType())
+                    .language(extractedMetadata.getLanguage())
+                    .country(extractedMetadata.getCountry())
+                    .clientName(extractedMetadata.getClientName())
+                    .projectName(extractedMetadata.getProjectName())
+                    .sector(extractedMetadata.getSector())
+                    .contractType(extractedMetadata.getContractType())
+                    .documentDate(extractedMetadata.getDocumentDate())
+                    .documentVersion(extractedMetadata.getDocumentVersion())
+                    .tagsJson(objectMapper.writeValueAsString(
+                            extractedMetadata.getTags() != null ? extractedMetadata.getTags() : List.of()
+                    ))
+                    .createdAt(Instant.now())
+                    .build();
+
+            documentMetadataRepository.save(documentMetadata);
+
+            List<Document> chunks = toChunks(savedFile, extractedMetadata, extraction.text());
+            if (!chunks.isEmpty()) {
+                vectorStore.add(chunks);
+            }
+
+            return new DocumentUploadResponse(savedFile.getId(), savedFile.getOriginalFilename(), "INDEXED");
 
         } catch (Exception e) {
             throw new IllegalStateException("Errore durante ingestione file", e);
@@ -119,40 +156,56 @@ public class StoredFileService {
         return new ExtractionResult(extractedText, metadata);
     }
 
-    private List<Document> toChunks(StoredFile entity, String text) {
+    private List<Document> toChunks(StoredFile entity, ExtractedMetadata extractedMetadata, String text) {
         if (text == null || text.isBlank()) {
             return List.of();
         }
 
-        Document whole = new Document(text, Map.of(
-                "fileId", entity.getId().toString(),
-                "filename", Objects.toString(entity.getOriginalFilename(), "unknown"),
-                "contentType", Objects.toString(entity.getContentType(), "unknown"),
-                "sha256", Objects.toString(entity.getSha256(), "unknown")
-        ));
+        Map<String, Object> baseMetadata = new HashMap<>();
+        baseMetadata.put("fileId", entity.getId().toString());
+        baseMetadata.put("filename", Objects.toString(entity.getOriginalFilename(), "unknown"));
+        baseMetadata.put("contentType", Objects.toString(entity.getContentType(), "unknown"));
+        baseMetadata.put("sha256", Objects.toString(entity.getSha256(), "unknown"));
+        baseMetadata.put("documentType", extractedMetadata.getDocumentType() != null ? extractedMetadata.getDocumentType().name() : "UNKNOWN");
+        baseMetadata.put("language", extractedMetadata.getLanguage() != null ? extractedMetadata.getLanguage().name() : "UNKNOWN");
+        baseMetadata.put("country", safeMetadataValue(extractedMetadata.getCountry()));
+        baseMetadata.put("clientName", safeMetadataValue(extractedMetadata.getClientName()));
+        baseMetadata.put("projectName", safeMetadataValue(extractedMetadata.getProjectName()));
+        baseMetadata.put("sector", safeMetadataValue(extractedMetadata.getSector()));
+        baseMetadata.put("contractType", safeMetadataValue(extractedMetadata.getContractType()));
+        baseMetadata.put("documentVersion", safeMetadataValue(extractedMetadata.getDocumentVersion()));
+        baseMetadata.put("documentDate", extractedMetadata.getDocumentDate() != null ? extractedMetadata.getDocumentDate().toString() : "");
+
+        if (extractedMetadata.getTags() != null && !extractedMetadata.getTags().isEmpty()) {
+            baseMetadata.put("tags", String.join(",", extractedMetadata.getTags()));
+        } else {
+            baseMetadata.put("tags", "");
+        }
+
+        Document whole = new Document(text, baseMetadata);
 
         TokenTextSplitter splitter = new TokenTextSplitter(
-                300,   // chunk size
-                50,    // overlap
-                10,    // min chunk size chars
-                1000,  // max chunk size chars
-                true   // keep separator
+                300,
+                50,
+                10,
+                1000,
+                true
         );
 
         List<Document> chunks = splitter.split(List.of(whole));
-
         AtomicInteger idx = new AtomicInteger(0);
+
         return chunks.stream()
                 .map(d -> {
-                    Map<String, Object> md = new HashMap<>();
-                    md.put("fileId", Objects.toString(d.getMetadata().get("fileId"), ""));
-                    md.put("filename", Objects.toString(d.getMetadata().get("filename"), ""));
-                    md.put("contentType", Objects.toString(d.getMetadata().get("contentType"), ""));
-                    md.put("sha256", Objects.toString(d.getMetadata().get("sha256"), ""));
+                    Map<String, Object> md = new HashMap<>(d.getMetadata());
                     md.put("chunkIndex", String.valueOf(idx.getAndIncrement()));
                     return new Document(d.getText(), md);
                 })
                 .toList();
+    }
+
+    private String safeMetadataValue(String value) {
+        return value == null ? "" : value;
     }
 
     private String sha256Hex(byte[] data) throws Exception {

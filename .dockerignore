@@ -1,0 +1,52 @@
+# Maven
+target/
+*.jar
+*.war
+*.ear
+.m2/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.iml
+*.iws
+*.ipr
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Data volumes
+data/
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+
+# Node (if used)
+node_modules/
+npm-debug.log
+
+# Python (if used)
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.gradle/

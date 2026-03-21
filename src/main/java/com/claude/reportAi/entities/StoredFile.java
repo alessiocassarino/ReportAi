@@ -45,4 +45,7 @@ public class StoredFile {
 
     @CreationTimestamp
     private Instant createdAt;
+
+    @OneToOne(mappedBy = "storedFile", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private DocumentMetadata documentMetadata;
 }
