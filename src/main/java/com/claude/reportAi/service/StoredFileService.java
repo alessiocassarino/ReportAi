@@ -131,13 +131,13 @@ public class StoredFileService {
                 "sha256", Objects.toString(entity.getSha256(), "unknown")
         ));
 
-        TokenTextSplitter splitter = new TokenTextSplitter(
-                300,   // chunk size
-                50,    // overlap
-                10,    // min chunk size chars
-                1000,  // max chunk size chars
-                true   // keep separator
-        );
+        TokenTextSplitter splitter = TokenTextSplitter.builder()
+                .withChunkSize(300)
+                .withMinChunkSizeChars(10)
+                .withMinChunkLengthToEmbed(10)
+                .withMaxNumChunks(1000)
+                .withKeepSeparator(true)
+                .build();
 
         List<Document> chunks = splitter.split(List.of(whole));
 
