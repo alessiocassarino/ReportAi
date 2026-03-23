@@ -3,7 +3,7 @@ package com.claude.reportAi.service;
 import com.claude.reportAi.dto.DocumentUploadResponse;
 import com.claude.reportAi.entities.StoredFile;
 import com.claude.reportAi.repository.StoredFileRepository;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.reader.tika.TikaDocumentReader;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
@@ -35,7 +35,7 @@ public class StoredFileService {
     private VectorStore vectorStore;
 
     @Autowired
-    private ObjectMapper objectMapper;
+    private JsonMapper objectMapper;
 
     @Autowired
     private  ResourceLoader resourceLoader;

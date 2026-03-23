@@ -4,6 +4,8 @@ import com.claude.reportAi.dto.ReportRequest;
 import com.claude.reportAi.dto.ReportResponse;
 import com.claude.reportAi.service.ReportExportService;
 import com.claude.reportAi.service.ReportOrchestratorService;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.Resource;
@@ -16,16 +18,14 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/reports")
 @Slf4j
+@RequiredArgsConstructor
 public class ReportController {
 
-    @Autowired
-    private ReportOrchestratorService reportOrchestratorService;
-
-    @Autowired
-    private ReportExportService reportExportService;
+    private final ReportOrchestratorService reportOrchestratorService;
+    private final ReportExportService reportExportService;
 
     @PostMapping("/generate")
-    public ResponseEntity<ReportResponse> generate(@RequestBody ReportRequest request) {
+    public ResponseEntity<ReportResponse> generate(@Valid @RequestBody ReportRequest request) {
         log.info("Ricevuta richiesta POST /api/reports/generate");
         log.info("Parametri request -> prompt='{}', format='{}', allowWebSearch={}",
                 safe(request.getPrompt()),
@@ -34,10 +34,11 @@ public class ReportController {
 
         ReportResponse response = reportOrchestratorService.generate(request);
 
-        log.info("Generazione completata -> status='{}', foundInKnowledgeBase={}, webSearchUsed={}, fileName='{}', downloadUrl='{}'",
+        log.info("Generazione completata -> status='{}', foundInKnowledgeBase={}, webSearchUsed={}, resolvedFormat='{}', fileName='{}', downloadUrl='{}'",
                 response.getStatus(),
                 response.isFoundInKnowledgeBase(),
                 response.isWebSearchUsed(),
+                response.getResolvedFormat(),
                 response.getFileName(),
                 response.getDownloadUrl());
 
@@ -50,11 +51,6 @@ public class ReportController {
 
         Resource resource = reportExportService.loadAsResource(fileName);
         String contentType = reportExportService.resolveContentType(fileName);
-
-        log.info("Download pronto -> fileName='{}', contentType='{}', resourceExists={}",
-                fileName,
-                contentType,
-                resource != null && resource.exists());
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION,
