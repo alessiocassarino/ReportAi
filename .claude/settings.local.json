@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/tmp/**)",
+      "Bash(jar xf:*)",
+      "Bash(grep -v \"//\")"
+    ]
+  }
+}
