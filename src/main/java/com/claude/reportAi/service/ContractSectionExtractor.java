@@ -12,12 +12,23 @@ import java.util.regex.Pattern;
 @Slf4j
 public class ContractSectionExtractor {
 
-    private static final int CHUNK_SIZE = 5000;
+    private static final int CHUNK_SIZE = 8000;
     private static final int MIN_SECTIONS = 3;
 
-    // Regex per header di sezione (Articolo X, SECTION X, ecc.)
+    // Regex per header di sezione - copre:
+    // - FIDIC style: "1.", "1.1", "20.1   Contractor's Claims"
+    // - Stile verbale: "Clause 4", "Article 3", "Section 2"
+    // - Stile numerico puro: "CLAUSE 4 -", "4 -", "ARTICLE IV"
     private static final Pattern HEADER_PATTERN = Pattern.compile(
-            "(?im)^\\s*(article|articolo|section|sezione|clause|clausola)\\s+\\d+[.:]?\\s*.{0,80}$"
+            "(?m)^\\s*(?:" +
+            // Stile FIDIC: numero.numero opzionale seguito da testo (es. "1.1", "20.1  Claims")
+            "(?<num>\\d{1,2}(?:\\.\\d{1,2})?)" +
+            "(?=\\s{2,}|\\t|\\s*[A-Z])" +
+            "|" +
+            // Stile verbale: Article/Clause/Section + numero
+            "(?:article|articolo|section|sezione|clause|clausola)\\s+\\d+[.:]?" +
+            ")\\s*.{0,100}$",
+            Pattern.CASE_INSENSITIVE
     );
 
     public record ContractSection(String title, String content, int index) {}

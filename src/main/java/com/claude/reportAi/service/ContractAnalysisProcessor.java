@@ -3,12 +3,9 @@ package com.claude.reportAi.service;
 import com.claude.reportAi.entities.ContractAnalysisJob;
 import com.claude.reportAi.repository.ContractAnalysisJobRepository;
 import com.claude.reportAi.service.ContractSectionExtractor.ContractSection;
-import com.claude.reportAi.utils.AnthropicFileCleanupClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.anthropic.AnthropicChatOptions;
-import org.springframework.ai.anthropic.AnthropicSkillsResponseHelper;
-import org.springframework.ai.anthropic.api.AnthropicApi;
 import org.springframework.ai.anthropic.api.AnthropicCacheOptions;
 import org.springframework.ai.anthropic.api.AnthropicCacheStrategy;
 import org.springframework.ai.chat.client.ChatClient;
@@ -23,7 +20,6 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -42,8 +38,7 @@ public class ContractAnalysisProcessor {
     private final ContractSectionExtractor sectionExtractor;
     private final TokenRateLimiter rateLimiter;
     private final ChatClient chatClient;
-    private final AnthropicApi anthropicApi;
-    private final AnthropicFileCleanupClient fileCleanupClient;
+    private final ContractReportBuilder reportBuilder;
 
     // -----------------------------------------------------------------------
     // Prompts
@@ -62,7 +57,8 @@ public class ContractAnalysisProcessor {
 
     private static final String SYNTHESIS_SYSTEM_PROMPT = """
             Sei un contract manager senior con oltre 30 anni di esperienza internazionale in Oil & Gas.
-            Generi report professionali di analisi contrattuale in italiano, adatti a un board executive.
+            Sintetizzi analisi contrattuali in un unico JSON strutturato, in italiano, per la generazione di report executive.
+            Rispondi ESCLUSIVAMENTE con un oggetto JSON valido, senza markdown, senza testo prima o dopo.
             Usa un linguaggio diretto, autorevole e non neutrale: stai difendendo gli interessi del Contractor.
             """;
 
@@ -220,7 +216,7 @@ public class ContractAnalysisProcessor {
     // REDUCE: final DOCX report
     // -----------------------------------------------------------------------
 
-    private byte[] generateDocxReport(List<String> sectionResults, String originalFilename) throws InterruptedException {
+    private byte[] generateDocxReport(List<String> sectionResults, String originalFilename) throws Exception {
         String aggregatedContext = buildSynthesisContext(sectionResults);
         log.info("Contesto sintesi: {} caratteri (~{} token stimati)", aggregatedContext.length(), aggregatedContext.length() / 3);
         String synthesisPrompt = buildSynthesisPrompt(aggregatedContext, originalFilename);
@@ -233,9 +229,8 @@ public class ContractAnalysisProcessor {
                 .user(synthesisPrompt)
                 .options(AnthropicChatOptions.builder()
                         .model("claude-sonnet-4-5")
-                        .maxTokens(32000)
-                        .httpHeaders(Map.of("anthropic-beta", "output-128k-2025-02-19"))
-                        .skill(AnthropicApi.AnthropicSkill.DOCX)
+                        .maxTokens(16000)
+                        .temperature(0.1d)
                         .build())
                 .call()
                 .chatResponse();
@@ -243,41 +238,39 @@ public class ContractAnalysisProcessor {
         int actualTokens = extractActualTokens(response, estimatedTokens);
         rateLimiter.recordUsage(actualTokens);
 
-        List<String> fileIds = AnthropicSkillsResponseHelper.extractFileIds(response);
-        if (fileIds == null || fileIds.isEmpty()) {
-            String rawText = response.getResult().getOutput().getText();
-            log.error("Claude non ha generato DOCX. Testo: {}",
-                    rawText != null && rawText.length() > 500 ? rawText.substring(0, 500) : rawText);
-            Object anthropicRaw = response.getMetadata().get("anthropic-response");
-            if (anthropicRaw instanceof AnthropicApi.ChatCompletionResponse cr) {
-                log.error("Content blocks grezzi: {}", cr.content());
-                log.error("Stop reason: {}", cr.stopReason());
-            }
-            throw new IllegalStateException("Claude non ha generato nessun file DOCX nella risposta finale.");
-        }
+        String reportJson = response.getResult().getOutput().getText();
+        log.info("JSON sintesi ricevuto: {} caratteri", reportJson != null ? reportJson.length() : 0);
 
-        String fileId = fileIds.get(0);
-        byte[] content = anthropicApi.downloadFile(fileId);
-        log.info("File DOCX scaricato: {} bytes", content.length);
-
-        try {
-            fileCleanupClient.deleteFileFromAnthropic(fileId);
-            log.info("File eliminato da Anthropic: {}", fileId);
-        } catch (Exception e) {
-            log.warn("Impossibile eliminare il file da Anthropic (file_id={}): {}", fileId, e.getMessage());
-        }
-
-        return content;
+        return reportBuilder.build(reportJson, originalFilename);
     }
+
+    // ~130k token budget for context (200k limit - 16k output - 4k prompt overhead)
+    private static final int MAX_SYNTHESIS_CHARS = 390_000;
 
     private String buildSynthesisContext(List<String> sectionResults) {
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < sectionResults.size(); i++) {
-            sb.append("=== RISULTATO SEZIONE ").append(i + 1).append(" ===\n");
-            sb.append(cleanJsonResult(sectionResults.get(i)));
-            sb.append("\n\n");
+        int totalSections = sectionResults.size();
+
+        for (int i = 0; i < totalSections; i++) {
+            String cleaned = compactJson(cleanJsonResult(sectionResults.get(i)));
+            String entry = "=== SEZIONE " + (i + 1) + " ===\n" + cleaned + "\n\n";
+
+            if (sb.length() + entry.length() > MAX_SYNTHESIS_CHARS) {
+                sb.append("=== [").append(totalSections - i).append(" sezioni omesse per limite dimensione] ===\n");
+                log.warn("Contesto sintesi troncato a {} sezioni su {} (limite {} chars)",
+                        i, totalSections, MAX_SYNTHESIS_CHARS);
+                break;
+            }
+            sb.append(entry);
         }
+
         return sb.toString();
+    }
+
+    /** Rimuove spazi/newline superflui da un JSON per ridurne la dimensione. */
+    private String compactJson(String json) {
+        if (json == null) return "{}";
+        return json.replaceAll("\\s{2,}", " ").strip();
     }
 
     private String buildSynthesisPrompt(String context, String originalFilename) {
@@ -288,27 +281,38 @@ public class ContractAnalysisProcessor {
                 [RISULTATI ANALISI PER SEZIONE]
                 %s
 
-                Genera un report professionale Word con:
+                Restituisci un unico oggetto JSON con questa struttura esatta (nessun testo prima o dopo):
+                {
+                  "valutazione_complessiva": "SFAVOREVOLE|EQUILIBRATO|FAVOREVOLE",
+                  "raccomandazione_finale": "FIRMARE|NEGOZIARE|RIFIUTARE",
+                  "executive_summary": "<sintesi in 3-5 frasi per il board>",
+                  "rischi_critici": [
+                    {"sezione": "", "clausola": "", "descrizione": "", "livello": "ALTO|MEDIO|BASSO"}
+                  ],
+                  "matrice_rischi": [
+                    {"sezione": "", "clausola": "", "rischio": "", "livello": "ALTO|MEDIO|BASSO", "azione": ""}
+                  ],
+                  "analisi_sezioni": [
+                    {
+                      "titolo": "",
+                      "sommario": "",
+                      "rischi": [
+                        {"clausola": "", "descrizione": "", "livello": "ALTO|MEDIO|BASSO", "raccomandazione": ""}
+                      ],
+                      "clausole_mancanti": [""]
+                    }
+                  ],
+                  "top5_clausole": [
+                    {"riferimento": "", "testo_attuale": "", "testo_proposto": ""}
+                  ],
+                  "clausole_mancanti_globali": [""]
+                }
 
-                1. **Executive Summary**
-                   - I 3-5 rischi più critici in assoluto
-                   - Valutazione complessiva del contratto (favorevole / equilibrato / sfavorevole al Contractor)
-                   - Raccomandazione finale (firmare / negoziare / rifiutare)
-
-                2. **Matrice dei Rischi** (tabella)
-                   Colonne: # | Sezione | Clausola | Rischio | Livello | Azione richiesta
-                   Ordina per livello decrescente (ALTO → MEDIO → BASSO)
-
-                3. **Analisi Dettagliata per Sezione**
-                   Per ogni sezione: titolo, rischi trovati con descrizione e raccomandazione specifica
-
-                4. **Top 5 Clausole da Negoziare**
-                   Con formulazione alternativa proposta
-
-                5. **Clausole Mancanti**
-                   Clausole assenti che dovrebbero essere inserite a tutela del Contractor
-
-                Lingua: italiano. Stile: diretto, professionale, adatto a un board executive.
+                Regole:
+                - matrice_rischi ordinata per livello decrescente (ALTO → MEDIO → BASSO)
+                - rischi_critici: massimo 5 rischi, solo i più gravi
+                - top5_clausole: le 5 clausole più critiche da rinegoziare con testo alternativo proposto
+                - Lingua: italiano
                 """.formatted(originalFilename, context);
     }
 
