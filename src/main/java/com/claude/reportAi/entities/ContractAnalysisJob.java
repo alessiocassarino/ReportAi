@@ -26,6 +26,7 @@ public class ContractAnalysisJob {
     @Column(nullable = false)
     private int progress = 0;
 
+    @Column(columnDefinition = "TEXT")
     private String currentStep;
 
     @Column(columnDefinition = "TEXT")
@@ -35,6 +36,9 @@ public class ContractAnalysisJob {
 
     @Column(columnDefinition = "BYTEA")
     private byte[] resultFileContent;
+
+    @Column(nullable = false)
+    private String model = "claude-sonnet-4-5";
 
     @Column(nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();

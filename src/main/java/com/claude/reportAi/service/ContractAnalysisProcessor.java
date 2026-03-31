@@ -5,10 +5,6 @@ import com.claude.reportAi.repository.ContractAnalysisJobRepository;
 import com.claude.reportAi.service.ContractSectionExtractor.ContractSection;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.anthropic.AnthropicChatOptions;
-import org.springframework.ai.anthropic.api.AnthropicCacheOptions;
-import org.springframework.ai.anthropic.api.AnthropicCacheStrategy;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.reader.tika.TikaDocumentReader;
@@ -37,7 +33,8 @@ public class ContractAnalysisProcessor {
     private final ContractAnalysisJobRepository jobRepository;
     private final ContractSectionExtractor sectionExtractor;
     private final TokenRateLimiter rateLimiter;
-    private final ChatClient chatClient;
+    private final ModelChatClientFactory modelFactory;
+    private final OllamaModelService ollamaModelService;
     private final ContractReportBuilder reportBuilder;
 
     // -----------------------------------------------------------------------
@@ -67,12 +64,18 @@ public class ContractAnalysisProcessor {
     // -----------------------------------------------------------------------
 
     @Async("contractAnalysisExecutor")
-    public void processAsync(UUID jobId, byte[] pdfBytes, String originalFilename) {
-        log.info("START analisi contratto | jobId={} | file={}", jobId, originalFilename);
+    public void processAsync(UUID jobId, byte[] pdfBytes, String originalFilename, String model) {
+        log.info("START analisi contratto | jobId={} | file={} | model={}", jobId, originalFilename, model);
         long startTime = System.currentTimeMillis();
 
         try {
-            // Step 1 - Extract text
+            // Step 0 – Se è un modello Ollama, verifica/scarica il modello
+            if (!ModelChatClientFactory.isAnthropicModel(model)) {
+                updateProgress(jobId, 2, "Verifica disponibilità modello locale: " + model);
+                ollamaModelService.ensureAvailable(model);
+            }
+
+            // Step 1 – Extract text
             updateJob(jobId, ContractAnalysisJob.JobStatus.PROCESSING, 5, "Estrazione testo dal PDF");
             String fullText = extractTextFromPdf(pdfBytes);
 
@@ -81,12 +84,12 @@ public class ContractAnalysisProcessor {
             }
             log.info("Testo estratto: {} caratteri", fullText.length());
 
-            // Step 2 - Split into sections
+            // Step 2 – Split into sections
             updateProgress(jobId, 10, "Identificazione sezioni del contratto");
             List<ContractSection> sections = sectionExtractor.extractSections(fullText);
             log.info("Sezioni identificate: {}", sections.size());
 
-            // Step 3 - MAP: analyze each section
+            // Step 3 – MAP: analyze each section
             List<String> sectionResults = new ArrayList<>();
             int totalSections = sections.size();
 
@@ -98,7 +101,7 @@ public class ContractAnalysisProcessor {
                 log.info("Analisi sezione {}/{}: '{}'", i + 1, totalSections, section.title());
 
                 try {
-                    String result = analyzeSection(section);
+                    String result = analyzeSection(section, model);
                     sectionResults.add(result);
                 } catch (Exception e) {
                     log.warn("Sezione '{}' non analizzata: {}", section.title(), e.getMessage());
@@ -106,11 +109,11 @@ public class ContractAnalysisProcessor {
                 }
             }
 
-            // Step 4 - REDUCE: synthesize and generate DOCX
+            // Step 4 – REDUCE: synthesize and generate DOCX
             updateProgress(jobId, 82, "Aggregazione risultati e generazione report Word");
-            byte[] docxContent = generateDocxReport(sectionResults, originalFilename);
+            byte[] docxContent = generateDocxReport(sectionResults, originalFilename, model);
 
-            // Step 5 - Save result
+            // Step 5 – Save result
             String fileName = "risk-analysis-"
                     + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
                     + ".docx";
@@ -124,14 +127,14 @@ public class ContractAnalysisProcessor {
             jobRepository.save(job);
 
             long elapsed = System.currentTimeMillis() - startTime;
-            log.info("END analisi contratto | jobId={} | tempo totale={}s", jobId, elapsed / 1000);
+            log.info("END analisi contratto | jobId={} | model={} | tempo totale={}s", jobId, model, elapsed / 1000);
 
         } catch (Exception e) {
             log.error("ERRORE analisi contratto | jobId={}", jobId, e);
             ContractAnalysisJob job = loadJob(jobId);
             job.setStatus(ContractAnalysisJob.JobStatus.FAILED);
             job.setErrorMessage(e.getMessage());
-            job.setCurrentStep("Errore: " + e.getMessage());
+            job.setCurrentStep(truncate("Errore: " + e.getMessage(), 500));
             jobRepository.save(job);
         }
     }
@@ -153,28 +156,21 @@ public class ContractAnalysisProcessor {
     // MAP: single section analysis
     // -----------------------------------------------------------------------
 
-    private String analyzeSection(ContractSection section) throws InterruptedException {
+    private String analyzeSection(ContractSection section, String model) throws InterruptedException {
         String userPrompt = buildSectionUserPrompt(section);
         int estimatedTokens = estimateTokens(SECTION_SYSTEM_PROMPT + userPrompt) + 600;
 
-        rateLimiter.waitIfNeeded(estimatedTokens);
+        // Rate limiter attivo solo per Anthropic (ha limiti TPM)
+        if (ModelChatClientFactory.isAnthropicModel(model)) {
+            rateLimiter.waitIfNeeded(estimatedTokens);
+        }
 
-        ChatResponse response = chatClient.prompt()
-                .system(SECTION_SYSTEM_PROMPT)
-                .user(userPrompt)
-                .options(AnthropicChatOptions.builder()
-                        .model("claude-sonnet-4-5")
-                        .maxTokens(1500)
-                        .temperature(0.1d)
-                        .cacheOptions(AnthropicCacheOptions.builder()
-                                .strategy(AnthropicCacheStrategy.SYSTEM_ONLY)
-                                .build())
-                        .build())
-                .call()
-                .chatResponse();
+        ChatResponse response = modelFactory.call(model, SECTION_SYSTEM_PROMPT, userPrompt, 1500, true);
 
         int actualTokens = extractActualTokens(response, estimatedTokens);
-        rateLimiter.recordUsage(actualTokens);
+        if (ModelChatClientFactory.isAnthropicModel(model)) {
+            rateLimiter.recordUsage(actualTokens);
+        }
 
         return response.getResult().getOutput().getText();
     }
@@ -216,27 +212,22 @@ public class ContractAnalysisProcessor {
     // REDUCE: final DOCX report
     // -----------------------------------------------------------------------
 
-    private byte[] generateDocxReport(List<String> sectionResults, String originalFilename) throws Exception {
+    private byte[] generateDocxReport(List<String> sectionResults, String originalFilename, String model) throws Exception {
         String aggregatedContext = buildSynthesisContext(sectionResults);
         log.info("Contesto sintesi: {} caratteri (~{} token stimati)", aggregatedContext.length(), aggregatedContext.length() / 3);
         String synthesisPrompt = buildSynthesisPrompt(aggregatedContext, originalFilename);
 
         int estimatedTokens = estimateTokens(SYNTHESIS_SYSTEM_PROMPT + synthesisPrompt) + 4096;
-        rateLimiter.waitIfNeeded(estimatedTokens);
+        if (ModelChatClientFactory.isAnthropicModel(model)) {
+            rateLimiter.waitIfNeeded(estimatedTokens);
+        }
 
-        ChatResponse response = chatClient.prompt()
-                .system(SYNTHESIS_SYSTEM_PROMPT)
-                .user(synthesisPrompt)
-                .options(AnthropicChatOptions.builder()
-                        .model("claude-sonnet-4-5")
-                        .maxTokens(16000)
-                        .temperature(0.1d)
-                        .build())
-                .call()
-                .chatResponse();
+        ChatResponse response = modelFactory.call(model, SYNTHESIS_SYSTEM_PROMPT, synthesisPrompt, 32000, false);
 
         int actualTokens = extractActualTokens(response, estimatedTokens);
-        rateLimiter.recordUsage(actualTokens);
+        if (ModelChatClientFactory.isAnthropicModel(model)) {
+            rateLimiter.recordUsage(actualTokens);
+        }
 
         String reportJson = response.getResult().getOutput().getText();
         log.info("JSON sintesi ricevuto: {} caratteri", reportJson != null ? reportJson.length() : 0);
@@ -267,7 +258,6 @@ public class ContractAnalysisProcessor {
         return sb.toString();
     }
 
-    /** Rimuove spazi/newline superflui da un JSON per ridurne la dimensione. */
     private String compactJson(String json) {
         if (json == null) return "{}";
         return json.replaceAll("\\s{2,}", " ").strip();
@@ -346,15 +336,20 @@ public class ContractAnalysisProcessor {
         ContractAnalysisJob job = loadJob(jobId);
         job.setStatus(status);
         job.setProgress(progress);
-        job.setCurrentStep(step);
+        job.setCurrentStep(truncate(step, 500));
         jobRepository.save(job);
     }
 
     private void updateProgress(UUID jobId, int progress, String step) {
         ContractAnalysisJob job = loadJob(jobId);
         job.setProgress(progress);
-        job.setCurrentStep(step);
+        job.setCurrentStep(truncate(step, 500));
         jobRepository.save(job);
+    }
+
+    private String truncate(String s, int maxLen) {
+        if (s == null || s.length() <= maxLen) return s;
+        return s.substring(0, maxLen - 3) + "...";
     }
 
     private ContractAnalysisJob loadJob(UUID jobId) {

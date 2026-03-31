@@ -18,10 +18,12 @@ public class ContractAnalysisService {
     private final ContractAnalysisJobRepository jobRepository;
     private final ContractAnalysisProcessor processor;
 
-    public UUID startAnalysis(MultipartFile file) throws IOException {
+    public UUID startAnalysis(MultipartFile file, String model) throws IOException {
         validateFile(file);
+        ModelChatClientFactory.findModel(model); // valida che il modello sia supportato
 
         ContractAnalysisJob job = new ContractAnalysisJob();
+        job.setModel(model);
         job = jobRepository.save(job);
         UUID jobId = job.getId();
 
@@ -30,9 +32,9 @@ public class ContractAnalysisService {
                 ? file.getOriginalFilename()
                 : "contratto.pdf";
 
-        log.info("Job creato: {} | file={} | size={} bytes", jobId, originalFilename, pdfBytes.length);
+        log.info("Job creato: {} | file={} | size={} bytes | model={}", jobId, originalFilename, pdfBytes.length, model);
 
-        processor.processAsync(jobId, pdfBytes, originalFilename);
+        processor.processAsync(jobId, pdfBytes, originalFilename, model);
 
         return jobId;
     }

@@ -605,7 +605,56 @@ public class ContractReportBuilder {
             s = s.replaceAll("(?s)^```[a-z]*\\n?", "").replaceAll("```$", "").strip();
         }
         int start = s.indexOf('{');
-        int end   = s.lastIndexOf('}');
-        return (start >= 0 && end > start) ? s.substring(start, end + 1) : s;
+        if (start < 0) return "{}";
+        s = s.substring(start);
+
+        // Se il JSON è completo lo restituiamo as-is, altrimenti lo ripariamo
+        int end = s.lastIndexOf('}');
+        if (end > 0 && end == s.length() - 1) {
+            return s; // già terminato correttamente
+        }
+
+        return repairTruncatedJson(s);
+    }
+
+    /**
+     * Chiude un JSON troncato aggiungendo le parentesi mancanti.
+     * Gestisce stringhe con escape, array e oggetti annidati.
+     */
+    private String repairTruncatedJson(String json) {
+        StringBuilder sb = new StringBuilder(json.stripTrailing());
+
+        // Rimuove eventuale virgola finale prima di chiudere
+        if (!sb.isEmpty() && sb.charAt(sb.length() - 1) == ',') {
+            sb.deleteCharAt(sb.length() - 1);
+        }
+
+        // Conta strutture aperte percorrendo il testo
+        int braces = 0, brackets = 0;
+        boolean inString = false, escaped = false;
+
+        for (int i = 0; i < sb.length(); i++) {
+            char c = sb.charAt(i);
+            if (escaped) { escaped = false; continue; }
+            if (c == '\\' && inString) { escaped = true; continue; }
+            if (c == '"') { inString = !inString; continue; }
+            if (!inString) {
+                switch (c) {
+                    case '{' -> braces++;
+                    case '}' -> braces--;
+                    case '[' -> brackets++;
+                    case ']' -> brackets--;
+                }
+            }
+        }
+
+        // Chiude eventuale stringa aperta
+        if (inString) sb.append('"');
+        // Chiude array e oggetti aperti
+        for (int i = 0; i < Math.max(0, brackets); i++) sb.append(']');
+        for (int i = 0; i < Math.max(0, braces);   i++) sb.append('}');
+
+        log.warn("JSON sintesi era troncato: riparato aggiungendo {} ']' e {} '}'", brackets, braces);
+        return sb.toString();
     }
 }
