@@ -22,15 +22,17 @@ public class ContractAnalysisService {
         validateFile(file);
         ModelChatClientFactory.findModel(model); // valida che il modello sia supportato
 
+        String originalFilename = file.getOriginalFilename() != null
+                ? file.getOriginalFilename()
+                : "contratto.pdf";
+
         ContractAnalysisJob job = new ContractAnalysisJob();
         job.setModel(model);
+        job.setOriginalFilename(originalFilename);
         job = jobRepository.save(job);
         UUID jobId = job.getId();
 
         byte[] pdfBytes = file.getBytes();
-        String originalFilename = file.getOriginalFilename() != null
-                ? file.getOriginalFilename()
-                : "contratto.pdf";
 
         log.info("Job creato: {} | file={} | size={} bytes | model={}", jobId, originalFilename, pdfBytes.length, model);
 

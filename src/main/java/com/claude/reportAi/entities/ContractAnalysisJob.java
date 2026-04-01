@@ -40,6 +40,8 @@ public class ContractAnalysisJob {
     @Column(nullable = false)
     private String model = "claude-haiku-4-5-20251001";
 
+    private String originalFilename;
+
     @Column(nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 
