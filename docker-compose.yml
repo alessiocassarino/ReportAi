@@ -10,6 +10,8 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: root
       POSTGRES_DB: vector_db
+    ports:
+      - "5400:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
