@@ -9,11 +9,11 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "contract_analysis_jobs")
+@Table(name = "report_jobs")
 @Getter
 @Setter
 @NoArgsConstructor
-public class ContractAnalysisJob {
+public class ReportJob {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -39,6 +39,8 @@ public class ContractAnalysisJob {
 
     @Column(nullable = false)
     private String model = "claude-haiku-4-5-20251001";
+
+    private String originalFilename;
 
     @Column(nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();

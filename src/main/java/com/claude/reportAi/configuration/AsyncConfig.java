@@ -35,6 +35,17 @@ public class AsyncConfig {
         return executor;
     }
 
+    @Bean(name = "reportGenerationExecutor")
+    public Executor reportGenerationExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(1);
+        executor.setMaxPoolSize(2);
+        executor.setQueueCapacity(10);
+        executor.setThreadNamePrefix("report-gen-");
+        executor.initialize();
+        return executor;
+    }
+
     /**
      * Aumenta il read timeout a 15 minuti per supportare le chiamate lunghe
      * alla Skills API di Anthropic (generazione DOCX richiede esecuzione

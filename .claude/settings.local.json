@@ -3,7 +3,12 @@
     "allow": [
       "Read(//c/tmp/**)",
       "Bash(jar xf:*)",
-      "Bash(grep -v \"//\")"
+      "Bash(grep -v \"//\")",
+      "Bash(mvn -q exec:java -Dexec.mainClass=\"org.apache.tika.cli.TikaCLI\")",
+      "Bash(python3 -c \":*)",
+      "Bash(where python3.exe)",
+      "Bash(where python.exe)",
+      "Bash(where py.exe)"
     ]
   }
 }

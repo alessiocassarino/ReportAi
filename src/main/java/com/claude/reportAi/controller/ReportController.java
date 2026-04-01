@@ -1,8 +1,8 @@
 package com.claude.reportAi.controller;
 
-import com.claude.reportAi.entities.ContractAnalysisJob;
-import com.claude.reportAi.service.ContractAnalysisService;
+import com.claude.reportAi.entities.ReportJob;
 import com.claude.reportAi.service.ModelChatClientFactory;
+import com.claude.reportAi.service.report.ReportGenerationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -16,59 +16,62 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * REST API for asynchronous contract risk analysis.
+ * REST API for asynchronous cost estimate (preventivo) generation.
  *
  * Flow:
- *   0. GET  /api/contracts/models            → lista modelli disponibili
- *   1. POST /api/contracts/analyze            → upload PDF + model, receive jobId
- *   2. GET  /api/contracts/{jobId}/status    → poll until COMPLETED or FAILED
- *   3. GET  /api/contracts/{jobId}/result    → download the generated DOCX
+ *   0. GET  /api/reports/models               → lista modelli disponibili
+ *   1. POST /api/reports/generate             → upload PDF + model, receive jobId
+ *   2. GET  /api/reports/{jobId}/status       → poll until COMPLETED or FAILED
+ *   3. GET  /api/reports/{jobId}/result       → download the generated DOCX
  */
 @RestController
-@RequestMapping("/api/contracts")
+@RequestMapping("/api/reports")
 @RequiredArgsConstructor
 @Slf4j
-public class ContractController {
+public class ReportController {
 
-    private final ContractAnalysisService contractAnalysisService;
+    private final ReportGenerationService reportGenerationService;
 
-    /**
-     * Restituisce la lista dei modelli supportati per l'analisi.
-     */
     @GetMapping("/models")
     public ResponseEntity<List<ModelChatClientFactory.ModelInfo>> listModels() {
         return ResponseEntity.ok(ModelChatClientFactory.SUPPORTED_MODELS);
     }
 
-    /**
-     * Accepts a PDF contract and starts the async risk analysis.
-     * Returns the jobId to use for status polling.
-     *
-     * @param model  ID del modello da usare (default: claude-sonnet-4-5)
-     */
-    @PostMapping(value = "/analyze", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ResponseEntity<StartJobResponse> analyze(
+    @PostMapping(value = "/preventivo", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<StartJobResponse> generate(
             @RequestPart("file") MultipartFile file,
             @RequestParam(value = "model", defaultValue = "claude-haiku-4-5-20251001") String model)
             throws IOException {
 
-        UUID jobId = contractAnalysisService.startAnalysis(file, model);
-        log.info("Job avviato: {} | model={}", jobId, model);
+        String contentType = file.getContentType();
+        if (contentType == null || !contentType.equals("application/pdf")) {
+            throw new IllegalArgumentException(
+                    "Il file deve essere un PDF. Tipo ricevuto: " + contentType);
+        }
+
+        byte[] pdfBytes = file.getBytes();
+        String originalFilename = file.getOriginalFilename() != null
+                ? file.getOriginalFilename()
+                : "document.pdf";
+
+        UUID jobId = reportGenerationService.startGeneration(pdfBytes, originalFilename, model);
+        log.info("ReportJob avviato: {} | model={} | file={}", jobId, model, originalFilename);
 
         return ResponseEntity.accepted().body(new StartJobResponse(
                 jobId.toString(),
-                ContractAnalysisJob.JobStatus.PENDING.name(),
+                ReportJob.JobStatus.PENDING.name(),
                 model,
-                "Analisi avviata. Usa /api/contracts/" + jobId + "/status per monitorare lo stato."
+                "Generazione preventivo avviata. Usa /api/reports/" + jobId + "/status per monitorare lo stato."
         ));
     }
 
-    /**
-     * Returns the current status and progress of a job.
-     */
     @GetMapping("/{jobId}/status")
     public ResponseEntity<JobStatusResponse> status(@PathVariable UUID jobId) {
-        ContractAnalysisJob job = contractAnalysisService.getJob(jobId);
+        ReportJob job = reportGenerationService.getJob(jobId);
+
+        String downloadUrl = job.getStatus() == ReportJob.JobStatus.COMPLETED
+                ? "/api/reports/" + jobId + "/result"
+                : null;
 
         return ResponseEntity.ok(new JobStatusResponse(
                 job.getId().toString(),
@@ -77,24 +80,18 @@ public class ContractController {
                 job.getCurrentStep(),
                 job.getModel(),
                 job.getErrorMessage(),
-                job.getResultFileName(),
-                job.getStatus() == ContractAnalysisJob.JobStatus.COMPLETED
-                        ? "/api/contracts/" + jobId + "/result"
-                        : null
+                downloadUrl
         ));
     }
 
-    /**
-     * Downloads the generated DOCX report for a completed job.
-     */
     @GetMapping("/{jobId}/result")
     public ResponseEntity<byte[]> result(@PathVariable UUID jobId) {
-        ContractAnalysisJob job = contractAnalysisService.getJob(jobId);
-        byte[] content = contractAnalysisService.getResult(jobId);
+        ReportJob job = reportGenerationService.getJob(jobId);
+        byte[] content = reportGenerationService.getResult(jobId);
 
         String filename = job.getResultFileName() != null
                 ? job.getResultFileName()
-                : "contract-risk-analysis.docx";
+                : "estimate-report.docx";
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
@@ -117,7 +114,6 @@ public class ContractController {
             String currentStep,
             String model,
             String errorMessage,
-            String resultFileName,
             String downloadUrl
     ) {}
 }
