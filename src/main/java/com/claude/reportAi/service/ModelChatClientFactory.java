@@ -7,7 +7,9 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.ollama.api.OllamaChatOptions;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.stereotype.Component;
+import org.springframework.util.MimeTypeUtils;
 
 import java.util.List;
 
@@ -75,6 +77,18 @@ public class ModelChatClientFactory {
      */
     public ChatResponse call(String model, String systemPrompt, String userPrompt,
                              int maxTokens, boolean useCache) {
+        return callWithImages(model, systemPrompt, userPrompt, maxTokens, useCache, List.of());
+    }
+
+    /**
+     * Variante multimodale: allega immagini PNG al messaggio utente.
+     * Le immagini vengono passate solo ai modelli Anthropic (Claude ha visione nativa);
+     * per Ollama ricade sul metodo testuale base.
+     *
+     * @param pageImages lista di immagini PNG come byte[] (es. pagine del PDF)
+     */
+    public ChatResponse callWithImages(String model, String systemPrompt, String userPrompt,
+                                       int maxTokens, boolean useCache, List<byte[]> pageImages) {
 
         if (isAnthropicModel(model)) {
             AnthropicChatOptions.Builder opts = AnthropicChatOptions.builder()
@@ -88,12 +102,27 @@ public class ModelChatClientFactory {
                         .build());
             }
 
-            return anthropicClient.prompt()
-                    .system(systemPrompt)
-                    .user(userPrompt)
-                    .options(opts.build())
-                    .call()
-                    .chatResponse();
+            boolean hasImages = pageImages != null && !pageImages.isEmpty();
+            if (hasImages) {
+                final List<byte[]> imgs = pageImages;
+                return anthropicClient.prompt()
+                        .system(systemPrompt)
+                        .user(u -> {
+                            u.text(userPrompt);
+                            imgs.forEach(img ->
+                                u.media(MimeTypeUtils.IMAGE_PNG, new ByteArrayResource(img)));
+                        })
+                        .options(opts.build())
+                        .call()
+                        .chatResponse();
+            } else {
+                return anthropicClient.prompt()
+                        .system(systemPrompt)
+                        .user(userPrompt)
+                        .options(opts.build())
+                        .call()
+                        .chatResponse();
+            }
         } else {
             return ollamaClient.prompt()
                     .system(systemPrompt)

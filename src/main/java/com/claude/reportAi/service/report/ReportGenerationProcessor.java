@@ -35,16 +35,18 @@ public class ReportGenerationProcessor {
     private final ModelChatClientFactory modelFactory;
     private final TokenRateLimiter tokenRateLimiter;
     private final EstimateReportBuilder estimateReportBuilder;
+    private final PdfPageImageExtractor pdfPageImageExtractor;
     private final ObjectMapper objectMapper;
 
     private static final String SYSTEM_PROMPT = """
             Sei un cost estimator / tendering manager senior con 30 anni di esperienza specifica in EPC oil & gas onshore.
             Conosci perfettamente i processi di ingegneria e i loro costi, i materiali, le operazioni di cantiere, le
-            interfacce tra civile e meccanico, i rischi reali di progetto, le normative locali e le pratiche di mercato.
+            interfacce tra civile e meccanico e elettrico e strumentale, i rischi reali di progetto, le normative locali e le pratiche di mercato.
 
             Regole obbligatorie:
             - Ragiona SEMPRE nell'interesse del Contractor
-            - Priorità assoluta ai prezzi interni aziendali forniti; usa i dati di mercato per le voci mancanti
+            - Sulle stime di Costruzione, priorità assoluta ai prezzi interni aziendali forniti; usa i dati di mercato per le voci mancanti
+            - Fornisci stime di durata tenendo in considerazione la schedula (Gantt) o le tempistiche fornite nel documento
             - Fornisci stime realistiche e conservative (meglio sovrastimare)
             - Tutti gli importi in USD
             - Lingua del report: italiano
@@ -119,16 +121,25 @@ public class ReportGenerationProcessor {
                 searchResults.put(categoria, sb.toString().trim());
             }
 
-            // Step 5 – Generazione preventivo con LLM
+            // Step 5 – Estrazione immagini (Gantt, grafici) e generazione preventivo con LLM
+            List<byte[]> pageImages = List.of();
+            if (ModelChatClientFactory.isAnthropicModel(model)) {
+                updateProgress(jobId, 67, "Estrazione immagini dal documento");
+                pageImages = pdfPageImageExtractor.extractPageImages(pdfBytes);
+                if (!pageImages.isEmpty()) {
+                    log.info("Invio {} immagini PDF al modello per lettura Gantt/grafici", pageImages.size());
+                }
+            }
+
             updateProgress(jobId, 70, "Generazione preventivo con " + model);
-            String userPrompt = buildUserPrompt(info, internalPricing, searchResults);
+            String userPrompt = buildUserPrompt(info, internalPricing, searchResults, !pageImages.isEmpty());
 
             int estimatedTokens = userPrompt.length() / 3;
             if (ModelChatClientFactory.isAnthropicModel(model)) {
                 tokenRateLimiter.waitIfNeeded(estimatedTokens);
             }
 
-            ChatResponse response = modelFactory.call(model, SYSTEM_PROMPT, userPrompt, 16000, false);
+            ChatResponse response = modelFactory.callWithImages(model, SYSTEM_PROMPT, userPrompt, 16000, false, pageImages);
 
             int actualTokens = extractActualTokens(response, estimatedTokens);
             if (ModelChatClientFactory.isAnthropicModel(model)) {
@@ -192,7 +203,8 @@ public class ReportGenerationProcessor {
     private String buildUserPrompt(
             ProjectInfoExtractor.ProjectInfo info,
             String internalPricing,
-            Map<String, String> searchResults) throws Exception {
+            Map<String, String> searchResults,
+            boolean hasImages) throws Exception {
 
         // Map.of() supporta max 10 entries — usiamo LinkedHashMap per mantenere l'ordine
         Map<String, Object> projectInfoMap = new LinkedHashMap<>();
@@ -230,6 +242,11 @@ public class ReportGenerationProcessor {
         }
 
         sb.append("[ISTRUZIONI]\n");
+        if (hasImages) {
+            sb.append("Sono allegate le immagini delle pagine principali del documento PDF.\n");
+            sb.append("Analizza attentamente eventuali Gantt, cronoprogrammi, schemi tecnici o tabelle nelle immagini.\n");
+            sb.append("Usa le informazioni visive per ricavare durate delle fasi, sequenze di attività e dati tecnici non presenti nel testo.\n");
+        }
         sb.append("Genera un preventivo dettagliato per questo progetto.\n");
 
         String tipoUp = info.tipoProgetto() != null ? info.tipoProgetto().toUpperCase() : "";

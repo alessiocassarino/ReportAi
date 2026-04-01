@@ -17,7 +17,7 @@ import java.util.UUID;
 
 /**
  * REST API for asynchronous cost estimate (preventivo) generation.
- *
+ * <p>
  * Flow:
  *   0. GET  /api/reports/models               → lista modelli disponibili
  *   1. POST /api/reports/generate             → upload PDF + model, receive jobId
