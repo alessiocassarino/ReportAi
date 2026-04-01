@@ -118,22 +118,29 @@ public class StoredFileService {
 
             if (chunks.isEmpty()) {
                 log.warn("Nessun chunk valido per file '{}'", entity.getOriginalFilename());
+                deleteFromDisk(destination, originalFilename);
                 return new DocumentUploadResponse(entity.getId(), entity.getOriginalFilename(), "NO_TEXT");
             }
 
             addDocumentsInBatches(chunks);
 
+            deleteFromDisk(destination, originalFilename);
+
             return new DocumentUploadResponse(entity.getId(), entity.getOriginalFilename(), "INDEXED");
 
         } catch (Exception e) {
-            if (destination != null) {
-                try {
-                    Files.deleteIfExists(destination);
-                } catch (Exception cleanupEx) {
-                    log.warn("Impossibile eliminare il file temporaneo {}", destination, cleanupEx);
-                }
-            }
+            deleteFromDisk(destination, originalFilename);
             throw new IllegalStateException("Errore durante ingestione file: " + originalFilename, e);
+        }
+    }
+
+    private void deleteFromDisk(Path path, String filename) {
+        if (path == null) return;
+        try {
+            Files.deleteIfExists(path);
+            log.debug("File '{}' eliminato dal disco dopo l'indicizzazione.", filename);
+        } catch (Exception ex) {
+            log.warn("Impossibile eliminare il file '{}' dal disco: {}", filename, ex.getMessage());
         }
     }
 
