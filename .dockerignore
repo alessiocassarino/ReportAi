@@ -1,0 +1,9 @@
+target/
+.DS_Store
+*.log
+.classpath
+.project
+.settings/
+.vscode/
+node_modules/
+.git/

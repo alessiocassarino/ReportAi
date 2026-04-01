@@ -1,0 +1,78 @@
+services:
+  # PostgreSQL Database with pgvector extension
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: report-ai-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: vector_db
+    ports:
+      - "5400:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - report-ai-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Ollama for embeddings (optional - comment out if not needed)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: report-ai-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - report-ai-network
+    # Pull the embedding model on startup (optional, remove if already pulled)
+    # command: serve & sleep 5 && ollama pull mxbai-embed-large:latest
+    profiles:
+      - with-ollama
+
+  # Spring Boot Application
+  spring-boot:
+    build: .
+    container_name: report-ai-backend
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/vector_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: root
+      SPRING_AI_OLLAMA_BASE_URL: http://192.168.16.1:11434
+      APP_STORAGE_ROOT: /app/data/uploads
+      APP_REPORT_LOGO_PATH: /app/data/logo.png
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+    networks:
+      - report-ai-network
+
+  # React Frontend (serving dist files)
+  frontend:
+    image: nginx:alpine
+    container_name: report-ai-frontend
+    ports:
+      - "80:80"
+    volumes:
+      - C:\Users\alessio.cassarino\Desktop\report-ai-fe\dist:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - spring-boot
+    networks:
+      - report-ai-network
+
+networks:
+  report-ai-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  ollama_data:
