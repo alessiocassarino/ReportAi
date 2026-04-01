@@ -24,6 +24,17 @@ public class AsyncConfig {
         return executor;
     }
 
+    @Bean(name = "documentUploadExecutor")
+    public Executor documentUploadExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(4);
+        executor.setQueueCapacity(50);
+        executor.setThreadNamePrefix("doc-upload-");
+        executor.initialize();
+        return executor;
+    }
+
     /**
      * Aumenta il read timeout a 15 minuti per supportare le chiamate lunghe
      * alla Skills API di Anthropic (generazione DOCX richiede esecuzione
