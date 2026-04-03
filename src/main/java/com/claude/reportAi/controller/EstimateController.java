@@ -1,8 +1,8 @@
 package com.claude.reportAi.controller;
 
-import com.claude.reportAi.entities.ReportJob;
+import com.claude.reportAi.entities.Estimate;
 import com.claude.reportAi.service.ModelChatClientFactory;
-import com.claude.reportAi.service.report.ReportGenerationService;
+import com.claude.reportAi.service.estimate.EstimateGenerationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -28,9 +28,9 @@ import java.util.UUID;
 @RequestMapping("/api/reports")
 @RequiredArgsConstructor
 @Slf4j
-public class ReportController {
+public class EstimateController {
 
-    private final ReportGenerationService reportGenerationService;
+    private final EstimateGenerationService estimateGenerationService;
 
     @GetMapping("/models")
     public ResponseEntity<List<ModelChatClientFactory.ModelInfo>> listModels() {
@@ -54,12 +54,12 @@ public class ReportController {
                 ? file.getOriginalFilename()
                 : "document.pdf";
 
-        UUID jobId = reportGenerationService.startGeneration(pdfBytes, originalFilename, model);
+        UUID jobId = estimateGenerationService.startGeneration(pdfBytes, originalFilename, model);
         log.info("ReportJob avviato: {} | model={} | file={}", jobId, model, originalFilename);
 
         return ResponseEntity.accepted().body(new StartJobResponse(
                 jobId.toString(),
-                ReportJob.JobStatus.PENDING.name(),
+                Estimate.JobStatus.PENDING.name(),
                 model,
                 "Generazione preventivo avviata. Usa /api/reports/" + jobId + "/status per monitorare lo stato."
         ));
@@ -67,9 +67,9 @@ public class ReportController {
 
     @GetMapping("/{jobId}/status")
     public ResponseEntity<JobStatusResponse> status(@PathVariable UUID jobId) {
-        ReportJob job = reportGenerationService.getJob(jobId);
+        Estimate job = estimateGenerationService.getJob(jobId);
 
-        String downloadUrl = job.getStatus() == ReportJob.JobStatus.COMPLETED
+        String downloadUrl = job.getStatus() == Estimate.JobStatus.COMPLETED
                 ? "/api/reports/" + jobId + "/result"
                 : null;
 
@@ -86,8 +86,8 @@ public class ReportController {
 
     @GetMapping("/{jobId}/result")
     public ResponseEntity<byte[]> result(@PathVariable UUID jobId) {
-        ReportJob job = reportGenerationService.getJob(jobId);
-        byte[] content = reportGenerationService.getResult(jobId);
+        Estimate job = estimateGenerationService.getJob(jobId);
+        byte[] content = estimateGenerationService.getResult(jobId);
 
         String filename = job.getResultFileName() != null
                 ? job.getResultFileName()

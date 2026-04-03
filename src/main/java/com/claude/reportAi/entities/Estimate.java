@@ -9,11 +9,11 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "upload_jobs")
+@Table(name = "estimate")
 @Getter
 @Setter
 @NoArgsConstructor
-public class UploadJob {
+public class Estimate {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -24,12 +24,23 @@ public class UploadJob {
     private JobStatus status = JobStatus.PENDING;
 
     @Column(nullable = false)
-    private String originalFilename;
+    private int progress = 0;
 
-    private UUID storedFileId;
+    @Column(columnDefinition = "TEXT")
+    private String currentStep;
 
     @Column(columnDefinition = "TEXT")
     private String errorMessage;
+
+    private String resultFileName;
+
+    @Column(columnDefinition = "BYTEA")
+    private byte[] resultFileContent;
+
+    @Column(nullable = false)
+    private String model = "claude-haiku-4-5-20251001";
+
+    private String originalFilename;
 
     @Column(nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
@@ -42,6 +53,6 @@ public class UploadJob {
     }
 
     public enum JobStatus {
-        PENDING, PROCESSING, COMPLETED, FAILED, ALREADY_EXISTS, NO_TEXT
+        PENDING, PROCESSING, COMPLETED, FAILED
     }
 }

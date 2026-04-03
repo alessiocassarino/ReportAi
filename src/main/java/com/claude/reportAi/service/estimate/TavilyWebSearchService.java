@@ -1,4 +1,4 @@
-package com.claude.reportAi.service.report;
+package com.claude.reportAi.service.estimate;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;

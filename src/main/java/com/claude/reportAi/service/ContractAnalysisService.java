@@ -1,7 +1,7 @@
 package com.claude.reportAi.service;
 
-import com.claude.reportAi.entities.ContractAnalysisJob;
-import com.claude.reportAi.repository.ContractAnalysisJobRepository;
+import com.claude.reportAi.entities.ContractAnalysis;
+import com.claude.reportAi.repository.ContractAnalysisRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -15,7 +15,7 @@ import java.util.UUID;
 @Slf4j
 public class ContractAnalysisService {
 
-    private final ContractAnalysisJobRepository jobRepository;
+    private final ContractAnalysisRepository contractAnalysisRepository;
     private final ContractAnalysisProcessor processor;
 
     public UUID startAnalysis(MultipartFile file, String model) throws IOException {
@@ -26,10 +26,10 @@ public class ContractAnalysisService {
                 ? file.getOriginalFilename()
                 : "contratto.pdf";
 
-        ContractAnalysisJob job = new ContractAnalysisJob();
+        ContractAnalysis job = new ContractAnalysis();
         job.setModel(model);
         job.setOriginalFilename(originalFilename);
-        job = jobRepository.save(job);
+        job = contractAnalysisRepository.save(job);
         UUID jobId = job.getId();
 
         byte[] pdfBytes = file.getBytes();
@@ -41,15 +41,15 @@ public class ContractAnalysisService {
         return jobId;
     }
 
-    public ContractAnalysisJob getJob(UUID jobId) {
-        return jobRepository.findById(jobId)
+    public ContractAnalysis getJob(UUID jobId) {
+        return contractAnalysisRepository.findById(jobId)
                 .orElseThrow(() -> new IllegalArgumentException("Job non trovato: " + jobId));
     }
 
     public byte[] getResult(UUID jobId) {
-        ContractAnalysisJob job = getJob(jobId);
+        ContractAnalysis job = getJob(jobId);
 
-        if (job.getStatus() != ContractAnalysisJob.JobStatus.COMPLETED) {
+        if (job.getStatus() != ContractAnalysis.JobStatus.COMPLETED) {
             throw new IllegalStateException(
                     "Il job non è ancora completato. Stato attuale: " + job.getStatus());
         }

@@ -1,4 +1,4 @@
-package com.claude.reportAi.service.report;
+package com.claude.reportAi.service.estimate;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -96,7 +96,7 @@ public class EstimateReportBuilder {
         XWPFTableCell confCell = confTable.getRow(0).getCell(0);
         setCellBackground(confCell, C_ORANGE);
         setCellText(confCell, "CONFIDENZIALE — USO INTERNO", C_WHITE, 11, true);
-        confCell.getParagraphs().get(0).setAlignment(ParagraphAlignment.CENTER);
+        confCell.getParagraphs().getFirst().setAlignment(ParagraphAlignment.CENTER);
 
         addSpacer(doc, 3);
 
@@ -220,7 +220,7 @@ public class EstimateReportBuilder {
         XWPFTableCell footCell = footTable.getRow(0).getCell(0);
         setCellBackground(footCell, C_NAVY);
         setCellText(footCell, companyName + " — EPC Oil & Gas", C_WHITE, 9, false);
-        footCell.getParagraphs().get(0).setAlignment(ParagraphAlignment.CENTER);
+        footCell.getParagraphs().getFirst().setAlignment(ParagraphAlignment.CENTER);
     }
 
     private int addCoverDataRow(XWPFTable table, int rowIdx, String label, String value) {
@@ -315,12 +315,12 @@ public class EstimateReportBuilder {
                 setCellWidth(row.getCell(1), colWidths[1]);
                 setCellBackground(row.getCell(1), bg);
                 setCellText(row.getCell(1), "$ " + formatUsd(importo), fgColor, 10, bold);
-                row.getCell(1).getParagraphs().get(0).setAlignment(ParagraphAlignment.RIGHT);
+                row.getCell(1).getParagraphs().getFirst().setAlignment(ParagraphAlignment.RIGHT);
 
                 setCellWidth(row.getCell(2), colWidths[2]);
                 setCellBackground(row.getCell(2), bg);
                 setCellText(row.getCell(2), String.format("%.1f%%", perc), fgColor, 9, bold);
-                row.getCell(2).getParagraphs().get(0).setAlignment(ParagraphAlignment.CENTER);
+                row.getCell(2).getParagraphs().getFirst().setAlignment(ParagraphAlignment.CENTER);
 
                 setCellWidth(row.getCell(3), colWidths[3]);
                 setCellBackground(row.getCell(3), bg);
@@ -455,7 +455,7 @@ public class EstimateReportBuilder {
                 while (assCell.getParagraphs().size() > 1) {
                     assCell.removeParagraph(assCell.getParagraphs().size() - 1);
                 }
-                XWPFParagraph assLabelPara = assCell.getParagraphs().get(0);
+                XWPFParagraph assLabelPara = assCell.getParagraphs().getFirst();
                 for (int i = assLabelPara.getRuns().size() - 1; i >= 0; i--) {
                     assLabelPara.removeRun(i);
                 }
@@ -585,7 +585,7 @@ public class EstimateReportBuilder {
             setCellWidth(row.getCell(2), colWidths[2]);
             setCellBackground(row.getCell(2), impatBg);
             setCellText(row.getCell(2), impatto, impatFg, 9, true);
-            row.getCell(2).getParagraphs().get(0).setAlignment(ParagraphAlignment.CENTER);
+            row.getCell(2).getParagraphs().getFirst().setAlignment(ParagraphAlignment.CENTER);
 
             setCellWidth(row.getCell(3), colWidths[3]);
             setCellBackground(row.getCell(3), rowBg);
@@ -740,7 +740,7 @@ public class EstimateReportBuilder {
         while (cell.getParagraphs().size() > 1) {
             cell.removeParagraph(cell.getParagraphs().size() - 1);
         }
-        XWPFParagraph para = cell.getParagraphs().get(0);
+        XWPFParagraph para = cell.getParagraphs().getFirst();
         for (int i = para.getRuns().size() - 1; i >= 0; i--) {
             para.removeRun(i);
         }

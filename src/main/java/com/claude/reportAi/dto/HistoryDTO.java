@@ -5,7 +5,7 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-public class JobHistoryDTO {
+public class HistoryDTO {
     private String jobId;
     private String type;              // DOCUMENTS | CONTRACTS | REPORTS
     private String originalFilename;

@@ -1,4 +1,4 @@
-package com.claude.reportAi.service.report;
+package com.claude.reportAi.service.estimate;
 
 import com.claude.reportAi.service.ModelChatClientFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -143,8 +143,10 @@ public class ProjectInfoExtractor {
         if (!sb.isEmpty() && sb.charAt(sb.length() - 1) == ',') {
             sb.deleteCharAt(sb.length() - 1);
         }
-        int braces = 0, brackets = 0;
-        boolean inString = false, escaped = false;
+        int braces = 0;
+        int brackets = 0;
+        boolean inString = false;
+        boolean escaped = false;
         for (int i = 0; i < sb.length(); i++) {
             char c = sb.charAt(i);
             if (escaped) { escaped = false; continue; }

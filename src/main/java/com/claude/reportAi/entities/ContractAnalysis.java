@@ -9,11 +9,11 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "report_jobs")
+@Table(name = "contract_analysis")
 @Getter
 @Setter
 @NoArgsConstructor
-public class ReportJob {
+public class ContractAnalysis {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

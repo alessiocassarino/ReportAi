@@ -1,0 +1,34 @@
+databaseChangeLog:
+  - changeSet:
+      id: 005-create-pgvector-extension-and-table
+      author: reportAi
+      dbms: postgresql
+      changes:
+        - sql:
+            sql: CREATE EXTENSION IF NOT EXISTS vector;
+        - createTable:
+            tableName: vector_store
+            columns:
+              - column:
+                  name: id
+                  type: UUID
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: content
+                  type: TEXT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: metadata
+                  type: VARCHAR(2000)
+              - column:
+                  name: embedding
+                  type: vector(1024)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  defaultValueComputed: CURRENT_TIMESTAMP

@@ -102,6 +102,12 @@
 			<artifactId>spring-security-oauth2-client</artifactId>
 		</dependency>
 
+		<!-- Liquibase -->
+		<dependency>
+			<groupId>org.liquibase</groupId>
+			<artifactId>liquibase-core</artifactId>
+		</dependency>
+
 		<!-- Lombok -->
 		<dependency>
 			<groupId>org.projectlombok</groupId>

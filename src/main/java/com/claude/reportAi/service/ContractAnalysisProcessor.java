@@ -1,7 +1,7 @@
 package com.claude.reportAi.service;
 
-import com.claude.reportAi.entities.ContractAnalysisJob;
-import com.claude.reportAi.repository.ContractAnalysisJobRepository;
+import com.claude.reportAi.entities.ContractAnalysis;
+import com.claude.reportAi.repository.ContractAnalysisRepository;
 import com.claude.reportAi.service.ContractSectionExtractor.ContractSection;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,7 +30,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class ContractAnalysisProcessor {
 
-    private final ContractAnalysisJobRepository jobRepository;
+    private final ContractAnalysisRepository contractAnalysisRepository;
     private final ContractSectionExtractor sectionExtractor;
     private final TokenRateLimiter rateLimiter;
     private final ModelChatClientFactory modelFactory;
@@ -76,7 +76,7 @@ public class ContractAnalysisProcessor {
             }
 
             // Step 1 – Extract text
-            updateJob(jobId, ContractAnalysisJob.JobStatus.PROCESSING, 5, "Estrazione testo dal PDF");
+            updateJob(jobId, ContractAnalysis.JobStatus.PROCESSING, 5, "Estrazione testo dal PDF");
             String fullText = extractTextFromPdf(pdfBytes);
 
             if (fullText.isBlank()) {
@@ -118,24 +118,24 @@ public class ContractAnalysisProcessor {
                     + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
                     + ".docx";
 
-            ContractAnalysisJob job = loadJob(jobId);
-            job.setStatus(ContractAnalysisJob.JobStatus.COMPLETED);
+            ContractAnalysis job = loadJob(jobId);
+            job.setStatus(ContractAnalysis.JobStatus.COMPLETED);
             job.setProgress(100);
             job.setCurrentStep("Analisi completata");
             job.setResultFileName(fileName);
             job.setResultFileContent(docxContent);
-            jobRepository.save(job);
+            contractAnalysisRepository.save(job);
 
             long elapsed = System.currentTimeMillis() - startTime;
             log.info("END analisi contratto | jobId={} | model={} | tempo totale={}s", jobId, model, elapsed / 1000);
 
         } catch (Exception e) {
             log.error("ERRORE analisi contratto | jobId={}", jobId, e);
-            ContractAnalysisJob job = loadJob(jobId);
-            job.setStatus(ContractAnalysisJob.JobStatus.FAILED);
+            ContractAnalysis job = loadJob(jobId);
+            job.setStatus(ContractAnalysis.JobStatus.FAILED);
             job.setErrorMessage(e.getMessage());
             job.setCurrentStep(truncate("Errore: " + e.getMessage(), 500));
-            jobRepository.save(job);
+            contractAnalysisRepository.save(job);
         }
     }
 
@@ -332,19 +332,19 @@ public class ContractAnalysisProcessor {
         return fallback;
     }
 
-    private void updateJob(UUID jobId, ContractAnalysisJob.JobStatus status, int progress, String step) {
-        ContractAnalysisJob job = loadJob(jobId);
+    private void updateJob(UUID jobId, ContractAnalysis.JobStatus status, int progress, String step) {
+        ContractAnalysis job = loadJob(jobId);
         job.setStatus(status);
         job.setProgress(progress);
         job.setCurrentStep(truncate(step, 500));
-        jobRepository.save(job);
+        contractAnalysisRepository.save(job);
     }
 
     private void updateProgress(UUID jobId, int progress, String step) {
-        ContractAnalysisJob job = loadJob(jobId);
+        ContractAnalysis job = loadJob(jobId);
         job.setProgress(progress);
         job.setCurrentStep(truncate(step, 500));
-        jobRepository.save(job);
+        contractAnalysisRepository.save(job);
     }
 
     private String truncate(String s, int maxLen) {
@@ -352,8 +352,8 @@ public class ContractAnalysisProcessor {
         return s.substring(0, maxLen - 3) + "...";
     }
 
-    private ContractAnalysisJob loadJob(UUID jobId) {
-        return jobRepository.findById(jobId)
+    private ContractAnalysis loadJob(UUID jobId) {
+        return contractAnalysisRepository.findById(jobId)
                 .orElseThrow(() -> new IllegalStateException("Job non trovato: " + jobId));
     }
 }

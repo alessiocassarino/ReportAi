@@ -1,7 +1,7 @@
 package com.claude.reportAi.controller;
 
-import com.claude.reportAi.dto.JobHistoryDTO;
-import com.claude.reportAi.service.JobHistoryService;
+import com.claude.reportAi.dto.HistoryDTO;
+import com.claude.reportAi.service.HistoryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -16,12 +16,12 @@ import java.time.LocalDate;
 @RestController
 @RequestMapping("/api/jobs")
 @RequiredArgsConstructor
-public class JobHistoryController {
+public class HistoryController {
 
-    private final JobHistoryService jobHistoryService;
+    private final HistoryService HistoryService;
 
     @GetMapping
-    public ResponseEntity<Page<JobHistoryDTO>> getJobs(
+    public ResponseEntity<Page<HistoryDTO>> getJobs(
             @RequestParam(defaultValue = "0")   int page,
             @RequestParam(defaultValue = "25")  int size,
             @RequestParam(required = false)     String type,
@@ -32,7 +32,7 @@ public class JobHistoryController {
             @RequestParam(defaultValue = "createdAt") String sortBy,
             @RequestParam(defaultValue = "DESC")      String sortDir) {
 
-        Page<JobHistoryDTO> result = jobHistoryService.getJobs(
+        Page<HistoryDTO> result = HistoryService.getJobs(
                 page, size, type, status, dateFrom, dateTo, search, sortBy, sortDir);
 
         return ResponseEntity.ok(result);

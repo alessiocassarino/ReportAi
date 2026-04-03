@@ -1,7 +1,7 @@
-package com.claude.reportAi.service.report;
+package com.claude.reportAi.service.estimate;
 
-import com.claude.reportAi.entities.ReportJob;
-import com.claude.reportAi.repository.ReportJobRepository;
+import com.claude.reportAi.entities.Estimate;
+import com.claude.reportAi.repository.EstimateRepository;
 import com.claude.reportAi.service.ModelChatClientFactory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,10 +13,10 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class ReportGenerationService {
+public class EstimateGenerationService {
 
-    private final ReportJobRepository reportJobRepository;
-    private final ReportGenerationProcessor processor;
+    private final EstimateRepository estimateRepository;
+    private final EstimateGenerationProcessor processor;
 
     public UUID startGeneration(byte[] pdfBytes, String originalFilename, String model) {
         if (pdfBytes == null || pdfBytes.length == 0) {
@@ -26,13 +26,13 @@ public class ReportGenerationService {
         // Valida modello (lancia IllegalArgumentException se non supportato)
         ModelChatClientFactory.findModel(model);
 
-        ReportJob job = new ReportJob();
-        job.setStatus(ReportJob.JobStatus.PENDING);
+        Estimate job = new Estimate();
+        job.setStatus(Estimate.JobStatus.PENDING);
         job.setModel(model);
         job.setOriginalFilename(originalFilename);
         job.setProgress(0);
         job.setCurrentStep("In attesa di elaborazione");
-        reportJobRepository.save(job);
+        estimateRepository.save(job);
 
         UUID jobId = job.getId();
         log.info("ReportJob creato: {} | model={} | file={}", jobId, model, originalFilename);
@@ -42,14 +42,14 @@ public class ReportGenerationService {
         return jobId;
     }
 
-    public ReportJob getJob(UUID jobId) {
-        return reportJobRepository.findById(jobId)
+    public Estimate getJob(UUID jobId) {
+        return estimateRepository.findById(jobId)
                 .orElseThrow(() -> new NoSuchElementException("Job non trovato: " + jobId));
     }
 
     public byte[] getResult(UUID jobId) {
-        ReportJob job = getJob(jobId);
-        if (job.getStatus() != ReportJob.JobStatus.COMPLETED) {
+        Estimate job = getJob(jobId);
+        if (job.getStatus() != Estimate.JobStatus.COMPLETED) {
             throw new IllegalStateException("Il job " + jobId + " non è ancora completato. Stato: " + job.getStatus());
         }
         byte[] content = job.getResultFileContent();

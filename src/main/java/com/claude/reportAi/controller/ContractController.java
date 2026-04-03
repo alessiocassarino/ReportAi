@@ -1,6 +1,6 @@
 package com.claude.reportAi.controller;
 
-import com.claude.reportAi.entities.ContractAnalysisJob;
+import com.claude.reportAi.entities.ContractAnalysis;
 import com.claude.reportAi.service.ContractAnalysisService;
 import com.claude.reportAi.service.ModelChatClientFactory;
 import lombok.RequiredArgsConstructor;
@@ -57,7 +57,7 @@ public class ContractController {
 
         return ResponseEntity.accepted().body(new StartJobResponse(
                 jobId.toString(),
-                ContractAnalysisJob.JobStatus.PENDING.name(),
+                ContractAnalysis.JobStatus.PENDING.name(),
                 model,
                 "Analisi avviata. Usa /api/contracts/" + jobId + "/status per monitorare lo stato."
         ));
@@ -68,7 +68,7 @@ public class ContractController {
      */
     @GetMapping("/{jobId}/status")
     public ResponseEntity<JobStatusResponse> status(@PathVariable UUID jobId) {
-        ContractAnalysisJob job = contractAnalysisService.getJob(jobId);
+        ContractAnalysis job = contractAnalysisService.getJob(jobId);
 
         return ResponseEntity.ok(new JobStatusResponse(
                 job.getId().toString(),
@@ -78,7 +78,7 @@ public class ContractController {
                 job.getModel(),
                 job.getErrorMessage(),
                 job.getResultFileName(),
-                job.getStatus() == ContractAnalysisJob.JobStatus.COMPLETED
+                job.getStatus() == ContractAnalysis.JobStatus.COMPLETED
                         ? "/api/contracts/" + jobId + "/result"
                         : null
         ));
@@ -89,7 +89,7 @@ public class ContractController {
      */
     @GetMapping("/{jobId}/result")
     public ResponseEntity<byte[]> result(@PathVariable UUID jobId) {
-        ContractAnalysisJob job = contractAnalysisService.getJob(jobId);
+        ContractAnalysis job = contractAnalysisService.getJob(jobId);
         byte[] content = contractAnalysisService.getResult(jobId);
 
         String filename = job.getResultFileName() != null

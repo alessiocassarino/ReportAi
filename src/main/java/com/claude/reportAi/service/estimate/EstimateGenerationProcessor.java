@@ -1,7 +1,7 @@
-package com.claude.reportAi.service.report;
+package com.claude.reportAi.service.estimate;
 
-import com.claude.reportAi.entities.ReportJob;
-import com.claude.reportAi.repository.ReportJobRepository;
+import com.claude.reportAi.entities.Estimate;
+import com.claude.reportAi.repository.EstimateRepository;
 import com.claude.reportAi.service.ModelChatClientFactory;
 import com.claude.reportAi.service.TokenRateLimiter;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -26,9 +26,9 @@ import java.util.stream.Collectors;
 @Component
 @RequiredArgsConstructor
 @Slf4j
-public class ReportGenerationProcessor {
+public class EstimateGenerationProcessor {
 
-    private final ReportJobRepository jobRepository;
+    private final EstimateRepository estimateRepository;
     private final ProjectInfoExtractor projectInfoExtractor;
     private final InternalPricingRetriever internalPricingRetriever;
     private final WebSearchService webSearchService;
@@ -60,7 +60,7 @@ public class ReportGenerationProcessor {
 
         try {
             // Step 1 – Estrazione testo
-            updateJob(jobId, ReportJob.JobStatus.PROCESSING, 2, "Estrazione testo dal documento");
+            updateJob(jobId, Estimate.JobStatus.PROCESSING, 2, "Estrazione testo dal documento");
             String fullText = extractText(pdfBytes);
 
             if (fullText == null || fullText.isBlank()) {
@@ -158,13 +158,13 @@ public class ReportGenerationProcessor {
                     + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
                     + ".docx";
 
-            ReportJob job = loadJob(jobId);
-            job.setStatus(ReportJob.JobStatus.COMPLETED);
+            Estimate job = loadJob(jobId);
+            job.setStatus(Estimate.JobStatus.COMPLETED);
             job.setProgress(100);
             job.setCurrentStep("Preventivo completato");
             job.setResultFileName(fileName);
             job.setResultFileContent(docx);
-            jobRepository.save(job);
+            estimateRepository.save(job);
 
             long elapsed = System.currentTimeMillis() - startTime;
             log.info("END generazione preventivo | jobId={} | model={} | tempo={}s", jobId, model, elapsed / 1000);
@@ -172,11 +172,11 @@ public class ReportGenerationProcessor {
         } catch (Exception e) {
             log.error("ERRORE generazione preventivo | jobId={}", jobId, e);
             try {
-                ReportJob job = loadJob(jobId);
-                job.setStatus(ReportJob.JobStatus.FAILED);
+                Estimate job = loadJob(jobId);
+                job.setStatus(Estimate.JobStatus.FAILED);
                 job.setErrorMessage(truncate(e.getMessage(), 1000));
                 job.setCurrentStep(truncate("Errore: " + e.getMessage(), 500));
-                jobRepository.save(job);
+                estimateRepository.save(job);
             } catch (Exception saveEx) {
                 log.error("Impossibile salvare stato FAILED per jobId={}: {}", jobId, saveEx.getMessage());
             }
@@ -322,31 +322,31 @@ public class ReportGenerationProcessor {
     // Helpers
     // -------------------------------------------------------------------------
 
-    private void updateJob(UUID jobId, ReportJob.JobStatus status, int progress, String step) {
-        ReportJob job = loadJob(jobId);
+    private void updateJob(UUID jobId, Estimate.JobStatus status, int progress, String step) {
+        Estimate job = loadJob(jobId);
         job.setStatus(status);
         job.setProgress(progress);
         job.setCurrentStep(truncate(step, 500));
-        jobRepository.save(job);
+        estimateRepository.save(job);
     }
 
     private void updateProgress(UUID jobId, int progress, String step) {
-        ReportJob job = loadJob(jobId);
+        Estimate job = loadJob(jobId);
         job.setProgress(progress);
         job.setCurrentStep(truncate(step, 500));
-        jobRepository.save(job);
+        estimateRepository.save(job);
     }
 
     private void failJob(UUID jobId, String message) {
-        ReportJob job = loadJob(jobId);
-        job.setStatus(ReportJob.JobStatus.FAILED);
+        Estimate job = loadJob(jobId);
+        job.setStatus(Estimate.JobStatus.FAILED);
         job.setErrorMessage(message);
         job.setCurrentStep(truncate("Errore: " + message, 500));
-        jobRepository.save(job);
+        estimateRepository.save(job);
     }
 
-    private ReportJob loadJob(UUID jobId) {
-        return jobRepository.findById(jobId)
+    private Estimate loadJob(UUID jobId) {
+        return estimateRepository.findById(jobId)
                 .orElseThrow(() -> new IllegalStateException("Job non trovato: " + jobId));
     }
 
@@ -358,7 +358,7 @@ public class ReportGenerationProcessor {
     private int extractActualTokens(ChatResponse response, int fallback) {
         try {
             if (response.getMetadata() != null && response.getMetadata().getUsage() != null) {
-                return (int) response.getMetadata().getUsage().getTotalTokens();
+                return response.getMetadata().getUsage().getTotalTokens();
             }
         } catch (Exception ignored) {}
         return fallback;

@@ -1,7 +1,7 @@
 package com.claude.reportAi.controller;
 
-import com.claude.reportAi.entities.UploadJob;
-import com.claude.reportAi.repository.UploadJobRepository;
+import com.claude.reportAi.entities.VectoreUpload;
+import com.claude.reportAi.repository.VectorUploadRepository;
 import com.claude.reportAi.service.StoredFileIngestionProcessor;
 import com.claude.reportAi.service.StoredFileService;
 import lombok.RequiredArgsConstructor;
@@ -31,7 +31,7 @@ import java.util.UUID;
 public class StoredFileController {
 
     private final StoredFileIngestionProcessor ingestionProcessor;
-    private final UploadJobRepository uploadJobRepository;
+    private final VectorUploadRepository vectorUploadRepository;
 
     /**
      * Accepts one or more files and starts async ingestion for each.
@@ -53,9 +53,9 @@ public class StoredFileController {
             byte[] bytes = file.getBytes();
             StoredFileService.validateFile(bytes, originalFilename, contentType);
 
-            UploadJob job = new UploadJob();
+            VectoreUpload job = new VectoreUpload();
             job.setOriginalFilename(originalFilename);
-            uploadJobRepository.save(job);
+            vectorUploadRepository.save(job);
 
             ingestionProcessor.processAsync(job.getId(), bytes, originalFilename, contentType);
 
@@ -64,7 +64,7 @@ public class StoredFileController {
             responses.add(new StartUploadResponse(
                     job.getId().toString(),
                     originalFilename,
-                    UploadJob.JobStatus.PENDING.name(),
+                    VectoreUpload.JobStatus.PENDING.name(),
                     "Indicizzazione avviata. Usa /api/documents/" + job.getId() + "/status per monitorare."
             ));
         }
@@ -77,7 +77,7 @@ public class StoredFileController {
      */
     @GetMapping("/{jobId}/status")
     public ResponseEntity<UploadJobStatusResponse> status(@PathVariable UUID jobId) {
-        UploadJob job = uploadJobRepository.findById(jobId)
+        VectoreUpload job = vectorUploadRepository.findById(jobId)
                 .orElseThrow(() -> new NoSuchElementException("Job non trovato: " + jobId));
 
         return ResponseEntity.ok(new UploadJobStatusResponse(

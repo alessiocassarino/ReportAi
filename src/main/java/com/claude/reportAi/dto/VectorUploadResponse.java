@@ -9,7 +9,7 @@ import java.util.UUID;
 @AllArgsConstructor
 @NoArgsConstructor
 @Builder
-public class DocumentUploadResponse {
+public class VectorUploadResponse {
 
     private UUID id;
     private String filename;

@@ -14,6 +14,7 @@ services:
       - "5400:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/10-init-extensions.sql:ro
     networks:
       - report-ai-network
     healthcheck:

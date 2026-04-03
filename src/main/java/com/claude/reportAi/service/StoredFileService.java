@@ -1,6 +1,6 @@
 package com.claude.reportAi.service;
 
-import com.claude.reportAi.dto.DocumentUploadResponse;
+import com.claude.reportAi.dto.VectorUploadResponse;
 import com.claude.reportAi.entities.StoredFile;
 import com.claude.reportAi.repository.StoredFileRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -65,7 +65,7 @@ public class StoredFileService {
     private String storageRoot;
 
     @Transactional
-    public DocumentUploadResponse ingest(byte[] bytes, String originalFilename, String contentType) {
+    public VectorUploadResponse ingest(byte[] bytes, String originalFilename, String contentType) {
         validateFile(bytes, originalFilename, contentType);
 
         Path destination = null;
@@ -76,7 +76,7 @@ public class StoredFileService {
             Optional<StoredFile> existing = storedFileRepository.findBySha256(sha256);
             if (existing.isPresent()) {
                 log.info("File '{}' già presente (sha256={})", originalFilename, sha256);
-                return new DocumentUploadResponse(
+                return new VectorUploadResponse(
                         existing.get().getId(),
                         existing.get().getOriginalFilename(),
                         "ALREADY_EXISTS"
@@ -119,14 +119,14 @@ public class StoredFileService {
             if (chunks.isEmpty()) {
                 log.warn("Nessun chunk valido per file '{}'", entity.getOriginalFilename());
                 deleteFromDisk(destination, originalFilename);
-                return new DocumentUploadResponse(entity.getId(), entity.getOriginalFilename(), "NO_TEXT");
+                return new VectorUploadResponse(entity.getId(), entity.getOriginalFilename(), "NO_TEXT");
             }
 
             addDocumentsInBatches(chunks);
 
             deleteFromDisk(destination, originalFilename);
 
-            return new DocumentUploadResponse(entity.getId(), entity.getOriginalFilename(), "INDEXED");
+            return new VectorUploadResponse(entity.getId(), entity.getOriginalFilename(), "INDEXED");
 
         } catch (Exception e) {
             deleteFromDisk(destination, originalFilename);
