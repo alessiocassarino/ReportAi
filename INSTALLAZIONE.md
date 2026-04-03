@@ -150,7 +150,65 @@ Tutti i comandi vanno eseguiti nel Prompt dei comandi nella cartella `reportAi`.
 | Riavviare un componente | `docker compose restart spring-boot` |
 | Vedere i log in tempo reale | `docker compose logs -f spring-boot` |
 | Controllare lo stato | `docker compose ps` |
-| Aggiornare l'applicazione | `docker compose down` poi `docker compose up -d --build` |
+| Aggiornare il backend (dev) | `.\dev-build.bat` |
+| Reset completo (pulisce tutto) | `.\clean-slate.bat` |
+
+---
+
+## 🔧 Per gli Sviluppatori
+
+Quando modifichi il codice backend e vuoi testare le modifiche **senza perdere i dati** (Ollama, database, ecc):
+
+### Opzione 1: Script Automatico (CONSIGLIATO)
+```
+.\dev-build.bat
+```
+
+Questo ferma il backend, lo ricompila e lo riavvia, **mantenendo intatti** i dati di Ollama e del database.
+
+### Opzione 2: Comandi Manuali
+```bash
+# 1. Ferma i container (senza rimuovere volumi)
+docker compose down
+
+# 2. Modifica il tuo codice Java
+
+# 3. Ricompila solo il backend
+docker compose build spring-boot
+
+# 4. Riavvia
+docker compose up -d
+```
+
+### Workflow di Sviluppo Completo
+
+```bash
+# 1. Primo avvio (una volta sola)
+docker compose up -d --build
+
+# 2. Modifica il codice backend
+
+# 3. Porta le modifiche in container
+.\dev-build.bat
+
+# 4. Testa le modifiche accedendo all'app su http://localhost
+
+# 5. Modifica il frontend se necessario, compila
+cd frontend
+npm run build
+cd ..
+
+# 6. Ripeti dal punto 2...
+```
+
+### Reset Completo
+
+Se vuoi cancellare **TUTTO** (database, Ollama, ecc) e ricominciare da zero:
+```
+.\clean-slate.bat
+```
+
+⚠️ **Attenzione**: Questo cancella i dati di Ollama che dovranno essere riscairati (~700 MB).
 
 ---
 

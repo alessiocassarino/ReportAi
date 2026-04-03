@@ -115,5 +115,21 @@ networks:
     driver: bridge
 
 volumes:
+  # ─────────────────────────────────────────────────────────────────
+  # NOTA IMPORTANTE PER LO SVILUPPO:
+  # ─────────────────────────────────────────────────────────────────
+  # 
+  # Durante lo SVILUPPO, per aggiornare il backend senza perdere i dati:
+  #   1. docker-compose down        (senza -v, per preservare i volumi)
+  #   2. (modifica il codice)
+  #   3. docker-compose build spring-boot
+  #   4. docker-compose up -d
+  #
+  # I volumi rimangono, quindi Ollama non deve rifare il download
+  # e il database mantiene le tabelle create da Liquibase.
+  #
+  # Per una CLEAN SLATE (test/staging):
+  #   docker-compose down -v        (rimuove anche i volumi)
+  # ─────────────────────────────────────────────────────────────────
   postgres_data:
   ollama_data:
