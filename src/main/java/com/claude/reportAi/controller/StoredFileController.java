@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -38,6 +39,7 @@ public class StoredFileController {
      * Returns 202 Accepted immediately with the list of created job IDs.
      */
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('ADMIN', 'USER', 'ANALYST')")
     public ResponseEntity<List<StartUploadResponse>> upload(
             @RequestPart("files") List<MultipartFile> files) throws IOException {
 
@@ -76,6 +78,7 @@ public class StoredFileController {
      * Returns the current status of an ingestion job.
      */
     @GetMapping("/{jobId}/status")
+    @PreAuthorize("hasAnyRole('ADMIN', 'USER', 'ANALYST')")
     public ResponseEntity<UploadJobStatusResponse> status(@PathVariable UUID jobId) {
         VectoreUpload job = vectorUploadRepository.findById(jobId)
                 .orElseThrow(() -> new NoSuchElementException("Job non trovato: " + jobId));

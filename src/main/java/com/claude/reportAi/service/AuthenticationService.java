@@ -100,7 +100,7 @@ public class AuthenticationService {
         newUser.setLastLogin(LocalDateTime.now());
 
         // Assegna il ruolo USER di default
-        Role userRole = roleRepository.findByName(Role.RoleName.USER)
+        Role userRole = roleRepository.findByName(Role.RoleName.ROLE_USER)
                 .orElseThrow(() -> new RuntimeException("Default USER role not found"));
         newUser.addRole(userRole);
 

@@ -25,6 +25,10 @@ public class CustomUserDetailsService implements UserDetailsService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + email));
 
+        log.debug("Loading user: {} with roles: {}", email, user.getRoles().stream()
+                .map(r -> r.getName().name())
+                .toList());
+
         return org.springframework.security.core.userdetails.User.builder()
                 .username(user.getEmail())
                 .password(user.getPassword())
@@ -37,10 +41,32 @@ public class CustomUserDetailsService implements UserDetailsService {
     }
 
     private java.util.Collection<? extends GrantedAuthority> buildAuthorities(User user) {
-        return user.getRoles().stream()
-                .flatMap(role -> role.getAuthorities().stream()
-                        .map(authority -> new SimpleGrantedAuthority(authority.getName())))
-                .collect(Collectors.toSet());
+        try {
+            var authorities = user.getRoles().stream()
+                    // Carica i nomi dei ruoli direttamente (già hanno il prefisso ROLE_ nel database)
+                    .map(role -> {
+                        String roleName = role.getName().name();
+                        log.debug("Processing role: {}", roleName);
+                        return new SimpleGrantedAuthority(roleName);
+                    })
+                    .collect(Collectors.toSet());
+            
+            // Aggiungi una authority di esempio dalla prima authority disponibile (se presente)
+            user.getRoles().stream()
+                    .flatMap(role -> role.getAuthorities().stream())
+                    .limit(1) // Solo la prima authority come esempio
+                    .map(authority -> new SimpleGrantedAuthority(authority.getName()))
+                    .forEach(authorities::add);
+            
+            log.debug("Built authorities for user {}: {}", user.getEmail(), authorities.stream()
+                    .map(GrantedAuthority::getAuthority)
+                    .toList());
+            
+            return authorities;
+        } catch (Exception e) {
+            log.error("Error building authorities for user: {}", user.getEmail(), e);
+            throw new RuntimeException("Failed to load authorities for user: " + user.getEmail(), e);
+        }
     }
 }
 

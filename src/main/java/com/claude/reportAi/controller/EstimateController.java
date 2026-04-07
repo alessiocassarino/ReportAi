@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -25,7 +26,7 @@ import java.util.UUID;
  *   3. GET  /api/reports/{jobId}/result       → download the generated DOCX
  */
 @RestController
-@RequestMapping("/api/reports")
+@RequestMapping("/api/estimates")
 @RequiredArgsConstructor
 @Slf4j
 public class EstimateController {
@@ -38,6 +39,7 @@ public class EstimateController {
     }
 
     @PostMapping(value = "/preventivo", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('ADMIN', 'USER', 'ANALYST')")
     public ResponseEntity<StartJobResponse> generate(
             @RequestPart("file") MultipartFile file,
             @RequestParam(value = "model", defaultValue = "claude-haiku-4-5-20251001") String model)
@@ -66,6 +68,7 @@ public class EstimateController {
     }
 
     @GetMapping("/{jobId}/status")
+    @PreAuthorize("hasAnyRole('ADMIN', 'USER', 'ANALYST')")
     public ResponseEntity<JobStatusResponse> status(@PathVariable UUID jobId) {
         Estimate job = estimateGenerationService.getJob(jobId);
 
@@ -85,6 +88,7 @@ public class EstimateController {
     }
 
     @GetMapping("/{jobId}/result")
+    @PreAuthorize("hasAnyRole('ADMIN', 'USER', 'ANALYST')")
     public ResponseEntity<byte[]> result(@PathVariable UUID jobId) {
         Estimate job = estimateGenerationService.getJob(jobId);
         byte[] content = estimateGenerationService.getResult(jobId);

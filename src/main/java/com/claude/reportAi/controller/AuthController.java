@@ -72,7 +72,7 @@ public class AuthController {
      * Il refresh token può essere passato nel body oppure viene utilizzato quello della sessione
      */
     @PostMapping("/logout")
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "User logout", description = "Logout user by revoking refresh token")
     public ResponseEntity<?> logout(
             @RequestBody(required = false) RefreshTokenRequest request) {
@@ -96,7 +96,7 @@ public class AuthController {
      * Logout from all devices endpoint
      */
     @PostMapping("/logout-all-devices")
-    @PreAuthorize("isAuthenticated()")
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Logout from all devices", description = "Revoke all refresh tokens for the current user")
     public ResponseEntity<?> logoutAllDevices() {
         String email = SecurityContextHolder.getContext().getAuthentication().getName();

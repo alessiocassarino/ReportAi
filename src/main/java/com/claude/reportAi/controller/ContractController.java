@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -47,6 +48,7 @@ public class ContractController {
      * @param model  ID del modello da usare (default: claude-sonnet-4-5)
      */
     @PostMapping(value = "/analyze", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('ADMIN', 'USER', 'ANALYST')")
     public ResponseEntity<StartJobResponse> analyze(
             @RequestPart("file") MultipartFile file,
             @RequestParam(value = "model", defaultValue = "claude-haiku-4-5-20251001") String model)
@@ -67,6 +69,7 @@ public class ContractController {
      * Returns the current status and progress of a job.
      */
     @GetMapping("/{jobId}/status")
+    @PreAuthorize("hasAnyRole('ADMIN', 'USER', 'ANALYST')")
     public ResponseEntity<JobStatusResponse> status(@PathVariable UUID jobId) {
         ContractAnalysis job = contractAnalysisService.getJob(jobId);
 
@@ -88,6 +91,7 @@ public class ContractController {
      * Downloads the generated DOCX report for a completed job.
      */
     @GetMapping("/{jobId}/result")
+    @PreAuthorize("hasAnyRole('ADMIN', 'USER', 'ANALYST')")
     public ResponseEntity<byte[]> result(@PathVariable UUID jobId) {
         ContractAnalysis job = contractAnalysisService.getJob(jobId);
         byte[] content = contractAnalysisService.getResult(jobId);

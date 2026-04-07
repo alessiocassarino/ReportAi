@@ -89,56 +89,50 @@ public class DataInitializerConfig {
 
     private void createDefaultRoles() {
         // Create USER role
-        if (roleRepository.findByName(Role.RoleName.USER).isEmpty()) {
-            Role userRole = new Role(Role.RoleName.USER);
+        if (roleRepository.findByName(Role.RoleName.ROLE_USER).isEmpty()) {
+            Role userRole = new Role(Role.RoleName.ROLE_USER);
             userRole.setDescription("Standard user role");
             
-            // Assign authorities to USER role
+            // Assign one authority to USER role as example
             Set<Authority> userAuthorities = new HashSet<>();
-            userAuthorities.add(authorityRepository.findByName("READ_CONTRACTS").orElse(null));
-            userAuthorities.add(authorityRepository.findByName("CREATE_CONTRACTS").orElse(null));
-            userAuthorities.add(authorityRepository.findByName("READ_ESTIMATES").orElse(null));
-            userAuthorities.add(authorityRepository.findByName("CREATE_ESTIMATES").orElse(null));
-            userAuthorities.removeIf(auth -> auth == null);
+            authorityRepository.findByName("READ_CONTRACTS").ifPresent(userAuthorities::add);
             
             userRole.setAuthorities(userAuthorities);
             roleRepository.save(userRole);
-            log.info("Created role: USER");
+            log.info("Created role: ROLE_USER");
         }
 
         // Create ANALYST role
-        if (roleRepository.findByName(Role.RoleName.ANALYST).isEmpty()) {
-            Role analystRole = new Role(Role.RoleName.ANALYST);
+        if (roleRepository.findByName(Role.RoleName.ROLE_ANALYST).isEmpty()) {
+            Role analystRole = new Role(Role.RoleName.ROLE_ANALYST);
             analystRole.setDescription("Analyst role");
             
-            // Assign authorities to ANALYST role
+            // Assign one authority to ANALYST role as example
             Set<Authority> analystAuthorities = new HashSet<>();
-            analystAuthorities.add(authorityRepository.findByName("READ_CONTRACTS").orElse(null));
-            analystAuthorities.add(authorityRepository.findByName("READ_ESTIMATES").orElse(null));
-            analystAuthorities.removeIf(auth -> auth == null);
+            authorityRepository.findByName("READ_CONTRACTS").ifPresent(analystAuthorities::add);
             
             analystRole.setAuthorities(analystAuthorities);
             roleRepository.save(analystRole);
-            log.info("Created role: ANALYST");
+            log.info("Created role: ROLE_ANALYST");
         }
 
         // Create ADMIN role
-        if (roleRepository.findByName(Role.RoleName.ADMIN).isEmpty()) {
-            Role adminRole = new Role(Role.RoleName.ADMIN);
+        if (roleRepository.findByName(Role.RoleName.ROLE_ADMIN).isEmpty()) {
+            Role adminRole = new Role(Role.RoleName.ROLE_ADMIN);
             adminRole.setDescription("Administrator role");
             
-            // Assign all authorities to ADMIN role
-            Set<Authority> allAuthorities = new HashSet<>(
-                    authorityRepository.findAll()
-            );
-            adminRole.setAuthorities(allAuthorities);
+            // Assign one authority to ADMIN role as example
+            Set<Authority> adminAuthorities = new HashSet<>();
+            authorityRepository.findByName("MANAGE_USERS").ifPresent(adminAuthorities::add);
+            
+            adminRole.setAuthorities(adminAuthorities);
             roleRepository.save(adminRole);
-            log.info("Created role: ADMIN");
+            log.info("Created role: ROLE_ADMIN");
         }
     }
 
     private void createDefaultUser() {
-        String defaultEmail = "user";
+        String defaultEmail = "user@user.it";
         String defaultPassword = "password";
 
         if (!userRepository.existsByEmail(defaultEmail)) {
@@ -155,7 +149,7 @@ public class DataInitializerConfig {
             defaultUser.setLastLogin(LocalDateTime.now());
 
             // Assign USER role
-            Role userRole = roleRepository.findByName(Role.RoleName.USER)
+            Role userRole = roleRepository.findByName(Role.RoleName.ROLE_ADMIN)
                     .orElseThrow(() -> new RuntimeException("USER role not found"));
             defaultUser.addRole(userRole);
 

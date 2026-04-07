@@ -40,9 +40,9 @@ public class Role {
     }
 
     public enum RoleName {
-        ADMIN,
-        USER,
-        ANALYST
+        ROLE_USER,
+        ROLE_ANALYST,
+        ROLE_ADMIN
     }
 }
 

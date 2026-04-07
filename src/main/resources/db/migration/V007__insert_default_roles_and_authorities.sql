@@ -14,8 +14,8 @@ ON CONFLICT DO NOTHING;
 
 -- Insert default roles
 INSERT INTO role (id, name, description) VALUES
-(gen_random_uuid(), 'USER', 'Standard user role'),
-(gen_random_uuid(), 'ANALYST', 'Analyst role'),
-(gen_random_uuid(), 'ADMIN', 'Administrator role')
+(gen_random_uuid(), 'ROLE_USER', 'Standard user role'),
+(gen_random_uuid(), 'ROLE_ANALYST', 'Analyst role'),
+(gen_random_uuid(), 'ROLE_ADMIN', 'Administrator role')
 ON CONFLICT (name) DO NOTHING;
 
