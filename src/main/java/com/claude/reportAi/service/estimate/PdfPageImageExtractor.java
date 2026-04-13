@@ -7,14 +7,19 @@ import org.apache.pdfbox.rendering.ImageType;
 import org.apache.pdfbox.rendering.PDFRenderer;
 import org.springframework.stereotype.Component;
 
+import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
+import javax.imageio.ImageWriteParam;
+import javax.imageio.ImageWriter;
+import javax.imageio.stream.ImageOutputStream;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 
 /**
- * Converte le pagine di un PDF in immagini PNG per la lettura multimodale
+ * Converte le pagine di un PDF in immagini JPEG per la lettura multimodale
  * (Gantt, grafici, schemi tecnici non estraibili come testo da Tika).
  *
  * Strategia di selezione pagine:
@@ -25,12 +30,13 @@ import java.util.List;
 @Slf4j
 public class PdfPageImageExtractor {
 
-    private static final int DPI = 150;
+    private static final int DPI = 120;
+    private static final float JPEG_QUALITY = 0.85f;
     private static final int MAX_PAGES_SMALL = 10;
     private static final int PAGES_EACH_SIDE = 5;
 
     /**
-     * Estrae le pagine rilevanti del PDF come immagini PNG raw (byte[]).
+     * Estrae le pagine rilevanti del PDF come immagini JPEG (byte[]) a 120 DPI, qualità 85%.
      * In caso di errore restituisce lista vuota per non bloccare la pipeline.
      */
     public List<byte[]> extractPageImages(byte[] pdfBytes) {
@@ -44,7 +50,17 @@ public class PdfPageImageExtractor {
                 try {
                     BufferedImage image = renderer.renderImageWithDPI(pageIndex, DPI, ImageType.RGB);
                     ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                    ImageIO.write(image, "PNG", baos);
+                    Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("jpeg");
+                    ImageWriter writer = writers.next();
+                    ImageWriteParam param = writer.getDefaultWriteParam();
+                    param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+                    param.setCompressionQuality(JPEG_QUALITY);
+                    try (ImageOutputStream ios = ImageIO.createImageOutputStream(baos)) {
+                        writer.setOutput(ios);
+                        writer.write(null, new IIOImage(image, null, null), param);
+                    } finally {
+                        writer.dispose();
+                    }
                     images.add(baos.toByteArray());
                 } catch (Exception e) {
                     log.warn("Impossibile renderizzare pagina {} del PDF: {}", pageIndex + 1, e.getMessage());

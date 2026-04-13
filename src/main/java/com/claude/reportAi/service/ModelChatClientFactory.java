@@ -85,7 +85,7 @@ public class ModelChatClientFactory {
      * Le immagini vengono passate solo ai modelli Anthropic (Claude ha visione nativa);
      * per Ollama ricade sul metodo testuale base.
      *
-     * @param pageImages lista di immagini PNG come byte[] (es. pagine del PDF)
+     * @param pageImages lista di immagini JPEG come byte[] (es. pagine del PDF)
      */
     public ChatResponse callWithImages(String model, String systemPrompt, String userPrompt,
                                        int maxTokens, boolean useCache, List<byte[]> pageImages) {
@@ -110,7 +110,7 @@ public class ModelChatClientFactory {
                         .user(u -> {
                             u.text(userPrompt);
                             imgs.forEach(img ->
-                                u.media(MimeTypeUtils.IMAGE_PNG, new ByteArrayResource(img)));
+                                u.media(MimeTypeUtils.IMAGE_JPEG, new ByteArrayResource(img)));
                         })
                         .options(opts.build())
                         .call()

@@ -8,7 +8,11 @@
       "Bash(python3 -c \":*)",
       "Bash(where python3.exe)",
       "Bash(where python.exe)",
-      "Bash(where py.exe)"
+      "Bash(where py.exe)",
+      "Read(//mnt/c/Users/alessio.cassarino/Desktop/**)",
+      "Bash(mvn compile:*)",
+      "Bash(java -version)",
+      "Bash(mvn --version)"
     ]
   }
 }

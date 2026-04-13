@@ -90,6 +90,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/contracts/**").hasAnyRole("ADMIN", "USER", "ANALYST")
                         .requestMatchers("/api/estimates/**").hasAnyRole("ADMIN", "USER", "ANALYST")
                         .requestMatchers("/api/documents/**").hasAnyRole("ADMIN", "USER", "ANALYST")
+                        .requestMatchers("/api/price-comparison/**").hasRole("ADMIN")
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
 
                         // Default - require authentication

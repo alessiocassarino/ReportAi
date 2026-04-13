@@ -3,9 +3,11 @@ package com.claude.reportAi.service;
 import com.claude.reportAi.dto.HistoryDTO;
 import com.claude.reportAi.entities.ContractAnalysis;
 import com.claude.reportAi.entities.Estimate;
+import com.claude.reportAi.entities.PriceComparison;
 import com.claude.reportAi.entities.VectoreUpload;
 import com.claude.reportAi.repository.ContractAnalysisRepository;
 import com.claude.reportAi.repository.EstimateRepository;
+import com.claude.reportAi.repository.PriceComparisonRepository;
 import com.claude.reportAi.repository.VectorUploadRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -27,6 +29,7 @@ public class HistoryService {
     private final VectorUploadRepository vectorUploadRepository;
     private final ContractAnalysisRepository contractAnalysisRepository;
     private final EstimateRepository estimateRepository;
+    private final PriceComparisonRepository priceComparisonRepository;
 
     public Page<HistoryDTO> getJobs(
             int page, int size,
@@ -57,6 +60,13 @@ public class HistoryService {
         if (type == null || "REPORTS".equalsIgnoreCase(type)) {
             estimateRepository.findAll().stream()
                     .map(this::fromReportJob)
+                    .filter(dto -> matches(dto, status, from, to, search))
+                    .forEach(all::add);
+        }
+
+        if (type == null || "PRICE_COMPARISONS".equalsIgnoreCase(type)) {
+            priceComparisonRepository.findAll().stream()
+                    .map(this::fromPriceComparisonJob)
                     .filter(dto -> matches(dto, status, from, to, search))
                     .forEach(all::add);
         }
@@ -106,6 +116,19 @@ public class HistoryService {
         dto.setJobId(j.getId().toString());
         dto.setType("REPORTS");
         dto.setOriginalFilename(j.getOriginalFilename());
+        dto.setStatus(j.getStatus().name());
+        dto.setModel(j.getModel());
+        dto.setCreatedAt(j.getCreatedAt());
+        dto.setUpdatedAt(j.getUpdatedAt());
+        dto.setErrorMessage(j.getErrorMessage());
+        return dto;
+    }
+
+    private HistoryDTO fromPriceComparisonJob(PriceComparison j) {
+        HistoryDTO dto = new HistoryDTO();
+        dto.setJobId(j.getId().toString());
+        dto.setType("PRICE_COMPARISONS");
+        dto.setOriginalFilename(j.getOriginalFilenames());
         dto.setStatus(j.getStatus().name());
         dto.setModel(j.getModel());
         dto.setCreatedAt(j.getCreatedAt());
