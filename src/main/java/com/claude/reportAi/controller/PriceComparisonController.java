@@ -1,7 +1,6 @@
 package com.claude.reportAi.controller;
 
 import com.claude.reportAi.entities.PriceComparison;
-import com.claude.reportAi.service.ModelChatClientFactory;
 import com.claude.reportAi.service.pricecomparison.PriceComparisonService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -34,12 +33,6 @@ import java.util.UUID;
 public class PriceComparisonController {
 
     private final PriceComparisonService service;
-
-    @GetMapping("/models")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<List<ModelChatClientFactory.ModelInfo>> listModels() {
-        return ResponseEntity.ok(ModelChatClientFactory.SUPPORTED_MODELS);
-    }
 
     @PostMapping(value = "/compare", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasRole('ADMIN')")

@@ -29,9 +29,9 @@ public class ModelChatClientFactory {
 
     public static final List<ModelInfo> SUPPORTED_MODELS = List.of(
             // Anthropic
-            new ModelInfo("claude-sonnet-4-5",           "Claude Sonnet 4.5",    "anthropic", "Raccomandato – ottimo equilibrio qualità/velocità"),
+            new ModelInfo("claude-haiku-4-5-20251001",   "Claude Haiku 4.5",     "anthropic", "Più veloce ed economico – default"),
+            new ModelInfo("claude-sonnet-4-5",           "Claude Sonnet 4.5",    "anthropic", "Ottimo equilibrio qualità/velocità"),
             new ModelInfo("claude-opus-4-6",             "Claude Opus 4.6",      "anthropic", "Massima qualità Anthropic, più lento"),
-            new ModelInfo("claude-haiku-4-5-20251001",   "Claude Haiku 4.5",     "anthropic", "Più veloce ed economico"),
             // Ollama
             new ModelInfo("mistral:7b",    "Mistral 7B",    "ollama", "Ottimo per output strutturato JSON"),
             new ModelInfo("llama3.1:8b",   "Llama 3.1 8B",  "ollama", "Meta – buon bilanciamento istruzioni/velocità"),

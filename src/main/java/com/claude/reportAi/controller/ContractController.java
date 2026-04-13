@@ -2,7 +2,6 @@ package com.claude.reportAi.controller;
 
 import com.claude.reportAi.entities.ContractAnalysis;
 import com.claude.reportAi.service.ContractAnalysisService;
-import com.claude.reportAi.service.ModelChatClientFactory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -13,7 +12,6 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -32,14 +30,6 @@ import java.util.UUID;
 public class ContractController {
 
     private final ContractAnalysisService contractAnalysisService;
-
-    /**
-     * Restituisce la lista dei modelli supportati per l'analisi.
-     */
-    @GetMapping("/models")
-    public ResponseEntity<List<ModelChatClientFactory.ModelInfo>> listModels() {
-        return ResponseEntity.ok(ModelChatClientFactory.SUPPORTED_MODELS);
-    }
 
     /**
      * Accepts a PDF contract and starts the async risk analysis.

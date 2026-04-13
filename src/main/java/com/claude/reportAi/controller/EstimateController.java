@@ -1,7 +1,6 @@
 package com.claude.reportAi.controller;
 
 import com.claude.reportAi.entities.Estimate;
-import com.claude.reportAi.service.ModelChatClientFactory;
 import com.claude.reportAi.service.estimate.EstimateGenerationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,7 +12,6 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -32,11 +30,6 @@ import java.util.UUID;
 public class EstimateController {
 
     private final EstimateGenerationService estimateGenerationService;
-
-    @GetMapping("/models")
-    public ResponseEntity<List<ModelChatClientFactory.ModelInfo>> listModels() {
-        return ResponseEntity.ok(ModelChatClientFactory.SUPPORTED_MODELS);
-    }
 
     @PostMapping(value = "/preventivo", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAnyRole('ADMIN', 'USER', 'ANALYST')")
