@@ -363,15 +363,26 @@ public class PriceComparisonReportBuilder {
                     JsonNode v      = values.get(f);
                     String valore   = getTextSafe(v, "valore", "N/D");
                     int punteggio   = getIntNode(v, "punteggio", 0);
+                    String note     = getTextSafe(v, "note", "");
                     boolean isBest  = (punteggio == maxScore && maxScore > 0);
 
                     String cellBg   = isBest ? C_RANK1_BG : rowBg;
                     String cellFg   = isBest ? C_GREEN : C_DARK_TEXT;
                     String text     = valore + " (" + punteggio + "/100)";
 
-                    setCellWidth(row.getCell(2 + f), fornWidth);
-                    setCellBackground(row.getCell(2 + f), cellBg);
-                    setCellText(row.getCell(2 + f), text, cellFg, 9, isBest);
+                    XWPFTableCell tCell = row.getCell(2 + f);
+                    setCellWidth(tCell, fornWidth);
+                    setCellBackground(tCell, cellBg);
+                    setCellText(tCell, text, cellFg, 9, isBest);
+                    if (!note.isBlank()) {
+                        XWPFParagraph notePara = tCell.addParagraph();
+                        XWPFRun noteRun = notePara.createRun();
+                        noteRun.setText(note);
+                        noteRun.setFontSize(7);
+                        noteRun.setFontFamily("Calibri");
+                        noteRun.setColor(C_GRAY_TEXT);
+                        noteRun.setItalic(true);
+                    }
                 }
             }
 

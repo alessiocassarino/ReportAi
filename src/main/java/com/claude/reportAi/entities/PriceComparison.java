@@ -51,6 +51,24 @@ public class PriceComparison {
 
     private LocalDateTime updatedAt;
 
+    /**
+     * JSON array con i dati di debug per ogni file elaborato nella Fase 1.
+     * Struttura: [{file, chars, lowText, images, textPreview, json}, ...]
+     * Persiste il supplierJson grezzo per file, utile per capire dove si rompe
+     * la pipeline (estrazione LLM vs merge nel confronto).
+     */
+    @Column(columnDefinition = "TEXT")
+    private String debugSupplierJsons;
+
+    /**
+     * JSON grezzo restituito dal secondo LLM (confronto comparativo),
+     * prima che venga passato al ReportBuilder per generare il DOCX.
+     * Permette di verificare se i dati sono persi nella fase di merge
+     * o nella fase di generazione documento.
+     */
+    @Column(columnDefinition = "TEXT")
+    private String debugComparisonJson;
+
     @PreUpdate
     public void onUpdate() {
         this.updatedAt = LocalDateTime.now();

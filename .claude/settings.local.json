@@ -12,7 +12,8 @@
       "Read(//mnt/c/Users/alessio.cassarino/Desktop/**)",
       "Bash(mvn compile:*)",
       "Bash(java -version)",
-      "Bash(mvn --version)"
+      "Bash(mvn --version)",
+      "Bash(python3:*)"
     ]
   }
 }
