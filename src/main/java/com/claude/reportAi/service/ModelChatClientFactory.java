@@ -5,7 +5,6 @@ import org.springframework.ai.anthropic.api.AnthropicCacheOptions;
 import org.springframework.ai.anthropic.api.AnthropicCacheStrategy;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.ollama.api.OllamaChatOptions;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.stereotype.Component;
@@ -15,8 +14,7 @@ import java.util.List;
 
 /**
  * Modelli supportati per l'analisi contratti.
- * Smista le chiamate al ChatClient corretto (Anthropic o Ollama)
- * e costruisce le opzioni appropriate per ciascun provider.
+ * Tutte le chiamate vengono instradate verso Anthropic.
  */
 @Component
 public class ModelChatClientFactory {
@@ -28,15 +26,9 @@ public class ModelChatClientFactory {
     public record ModelInfo(String id, String displayName, String provider, String description) {}
 
     public static final List<ModelInfo> SUPPORTED_MODELS = List.of(
-            // Anthropic
             new ModelInfo("claude-haiku-4-5-20251001",   "Claude Haiku 4.5",     "anthropic", "Più veloce ed economico – default"),
             new ModelInfo("claude-sonnet-4-5",           "Claude Sonnet 4.5",    "anthropic", "Ottimo equilibrio qualità/velocità"),
-            new ModelInfo("claude-opus-4-6",             "Claude Opus 4.6",      "anthropic", "Massima qualità Anthropic, più lento"),
-            // Ollama
-            new ModelInfo("mistral:7b",    "Mistral 7B",    "ollama", "Ottimo per output strutturato JSON"),
-            new ModelInfo("llama3.1:8b",   "Llama 3.1 8B",  "ollama", "Meta – buon bilanciamento istruzioni/velocità"),
-            new ModelInfo("qwen2.5:7b",    "Qwen 2.5 7B",   "ollama", "Eccellente per JSON e seguire istruzioni"),
-            new ModelInfo("deepseek-r1:8b","DeepSeek R1 8B","ollama", "Ottimo ragionamento passo-passo")
+            new ModelInfo("claude-opus-4-6",             "Claude Opus 4.6",      "anthropic", "Massima qualità Anthropic, più lento")
     );
 
     public static boolean isAnthropicModel(String model) {
@@ -53,17 +45,13 @@ public class ModelChatClientFactory {
     }
 
     // -----------------------------------------------------------------------
-    // ChatClient routing
+    // ChatClient
     // -----------------------------------------------------------------------
 
     private final ChatClient anthropicClient;
-    private final ChatClient ollamaClient;
 
-    public ModelChatClientFactory(
-            @Qualifier("anthropicChatClient") ChatClient anthropicClient,
-            @Qualifier("ollamaChatClient") ChatClient ollamaClient) {
+    public ModelChatClientFactory(@Qualifier("anthropicChatClient") ChatClient anthropicClient) {
         this.anthropicClient = anthropicClient;
-        this.ollamaClient = ollamaClient;
     }
 
     /**
@@ -90,48 +78,35 @@ public class ModelChatClientFactory {
     public ChatResponse callWithImages(String model, String systemPrompt, String userPrompt,
                                        int maxTokens, boolean useCache, List<byte[]> pageImages) {
 
-        if (isAnthropicModel(model)) {
-            AnthropicChatOptions.Builder opts = AnthropicChatOptions.builder()
-                    .model(model)
-                    .maxTokens(maxTokens)
-                    .temperature(0.1d);
+        AnthropicChatOptions.Builder opts = AnthropicChatOptions.builder()
+                .model(model)
+                .maxTokens(maxTokens)
+                .temperature(0.1d);
 
-            if (useCache) {
-                opts.cacheOptions(AnthropicCacheOptions.builder()
-                        .strategy(AnthropicCacheStrategy.SYSTEM_ONLY)
-                        .build());
-            }
+        if (useCache) {
+            opts.cacheOptions(AnthropicCacheOptions.builder()
+                    .strategy(AnthropicCacheStrategy.SYSTEM_ONLY)
+                    .build());
+        }
 
-            boolean hasImages = pageImages != null && !pageImages.isEmpty();
-            if (hasImages) {
-                final List<byte[]> imgs = pageImages;
-                return anthropicClient.prompt()
-                        .system(systemPrompt)
-                        .user(u -> {
-                            u.text(userPrompt);
-                            imgs.forEach(img ->
-                                u.media(MimeTypeUtils.IMAGE_JPEG, new ByteArrayResource(img)));
-                        })
-                        .options(opts.build())
-                        .call()
-                        .chatResponse();
-            } else {
-                return anthropicClient.prompt()
-                        .system(systemPrompt)
-                        .user(userPrompt)
-                        .options(opts.build())
-                        .call()
-                        .chatResponse();
-            }
+        boolean hasImages = pageImages != null && !pageImages.isEmpty();
+        if (hasImages) {
+            final List<byte[]> imgs = pageImages;
+            return anthropicClient.prompt()
+                    .system(systemPrompt)
+                    .user(u -> {
+                        u.text(userPrompt);
+                        imgs.forEach(img ->
+                            u.media(MimeTypeUtils.IMAGE_JPEG, new ByteArrayResource(img)));
+                    })
+                    .options(opts.build())
+                    .call()
+                    .chatResponse();
         } else {
-            return ollamaClient.prompt()
+            return anthropicClient.prompt()
                     .system(systemPrompt)
                     .user(userPrompt)
-                    .options(OllamaChatOptions.builder()
-                            .model(model)
-                            .temperature(0.1d)
-                            .numPredict(maxTokens)
-                            .build())
+                    .options(opts.build())
                     .call()
                     .chatResponse();
         }

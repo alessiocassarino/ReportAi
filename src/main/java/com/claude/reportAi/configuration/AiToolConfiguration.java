@@ -15,9 +15,4 @@ public class AiToolConfiguration {
         return ChatClient.builder(chatModel).build();
     }
 
-    @Bean
-    @Qualifier("ollamaChatClient")
-    ChatClient ollamaChatClient(@Qualifier("ollamaChatModel") ChatModel chatModel) {
-        return ChatClient.builder(chatModel).build();
-    }
 }

@@ -34,7 +34,6 @@ public class ContractAnalysisProcessor {
     private final ContractSectionExtractor sectionExtractor;
     private final TokenRateLimiter rateLimiter;
     private final ModelChatClientFactory modelFactory;
-    private final OllamaModelService ollamaModelService;
     private final ContractReportBuilder reportBuilder;
 
     // -----------------------------------------------------------------------
@@ -69,12 +68,6 @@ public class ContractAnalysisProcessor {
         long startTime = System.currentTimeMillis();
 
         try {
-            // Step 0 – Se è un modello Ollama, verifica/scarica il modello
-            if (!ModelChatClientFactory.isAnthropicModel(model)) {
-                updateProgress(jobId, 2, "Verifica disponibilità modello locale: " + model);
-                ollamaModelService.ensureAvailable(model);
-            }
-
             // Step 1 – Extract text
             updateJob(jobId, ContractAnalysis.JobStatus.PROCESSING, 5, "Estrazione testo dal PDF");
             String fullText = extractTextFromPdf(pdfBytes);
