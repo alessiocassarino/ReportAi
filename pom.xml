@@ -77,6 +77,12 @@
 			<artifactId>spring-ai-starter-model-ollama</artifactId>
 		</dependency>
 
+		<!-- Google Vertex AI Gemini -->
+		<dependency>
+			<groupId>org.springframework.ai</groupId>
+			<artifactId>spring-ai-starter-model-vertex-ai-gemini</artifactId>
+		</dependency>
+
 		<!-- Tika reader -->
 		<dependency>
 			<groupId>org.springframework.ai</groupId>

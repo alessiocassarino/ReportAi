@@ -121,9 +121,8 @@ public class EstimateGenerationProcessor {
                 searchResults.put(categoria, sb.toString().trim());
             }
 
-            // Step 5 – Estrazione immagini (Gantt, grafici) e generazione preventivo con LLM
             List<byte[]> pageImages = List.of();
-            if (ModelChatClientFactory.isAnthropicModel(model)) {
+            if (ModelChatClientFactory.isAnthropicModel(model) || ModelChatClientFactory.isGeminiModel(model)) {
                 updateProgress(jobId, 67, "Estrazione immagini dal documento");
                 pageImages = pdfPageImageExtractor.extractPageImages(pdfBytes);
                 if (!pageImages.isEmpty()) {
