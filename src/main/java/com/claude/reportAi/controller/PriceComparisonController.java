@@ -18,7 +18,7 @@ import java.util.UUID;
 
 /**
  * REST API per il confronto comparativo di offerte fornitori (PDF multipli).
- * Accessibile SOLO agli utenti con ruolo ADMIN.
+ * Accessibile agli utenti con ruolo ADMIN, USER o ANALYST.
  *
  * Flow:
  *   0. GET  /api/price-comparison/models               → lista modelli disponibili
@@ -35,7 +35,7 @@ public class PriceComparisonController {
     private final PriceComparisonService service;
 
     @PostMapping(value = "/compare", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'USER', 'ANALYST')")
     public ResponseEntity<StartJobResponse> compare(
             @RequestPart("files") List<MultipartFile> files,
             @RequestParam(value = "model", defaultValue = "claude-haiku-4-5-20251001") String model)
@@ -76,7 +76,7 @@ public class PriceComparisonController {
     }
 
     @GetMapping("/{jobId}/status")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'USER', 'ANALYST')")
     public ResponseEntity<JobStatusResponse> status(@PathVariable UUID jobId) {
         PriceComparison job = service.getJob(jobId);
 
@@ -98,7 +98,7 @@ public class PriceComparisonController {
     }
 
     @GetMapping("/{jobId}/result")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'USER', 'ANALYST')")
     public ResponseEntity<byte[]> result(@PathVariable UUID jobId) {
         PriceComparison job = service.getJob(jobId);
         byte[] content = service.getResult(jobId);
