@@ -608,6 +608,12 @@ public class ContractReportBuilder {
         if (start < 0) return "{}";
         s = s.substring(start);
 
+        // Tronca qualsiasi testo dopo l'ultima } (es. postamble aggiunto da Gemini)
+        int lastClose = s.lastIndexOf('}');
+        if (lastClose >= 0) {
+            s = s.substring(0, lastClose + 1);
+        }
+
         // Se il JSON è completo lo restituiamo as-is, altrimenti lo ripariamo
         int end = s.lastIndexOf('}');
         if (end > 0 && end == s.length() - 1) {

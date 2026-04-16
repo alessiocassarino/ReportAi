@@ -145,9 +145,9 @@ public class PriceComparisonProcessor {
                             filename, fullText.length(), imageLimit);
                 }
 
-                // Estrazione immagini (solo per modelli Anthropic con visione)
+                // Estrazione immagini per modelli con visione (Anthropic e Gemini)
                 List<byte[]> images = new ArrayList<>();
-                if (ModelChatClientFactory.isAnthropicModel(model)) {
+                if (ModelChatClientFactory.isAnthropicModel(model) || ModelChatClientFactory.isGeminiModel(model)) {
                     try {
                         List<byte[]> allImages = pdfPageImageExtractor.extractPageImages(fileContents.get(i));
                         // Distribuzione uniforme: prima pagina + pagine equidistanti + ultima,

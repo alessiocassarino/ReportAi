@@ -309,6 +309,12 @@ public class ContractAnalysisProcessor {
         if (cleaned.startsWith("```")) {
             cleaned = cleaned.replaceAll("(?s)^```[a-z]*\\n?", "").replaceAll("```$", "").strip();
         }
+        // Tronca qualsiasi testo prima del { e dopo l'ultima } (es. postamble di Gemini)
+        int start = cleaned.indexOf('{');
+        if (start >= 0) {
+            int end = cleaned.lastIndexOf('}');
+            if (end > start) cleaned = cleaned.substring(start, end + 1);
+        }
         return cleaned;
     }
 

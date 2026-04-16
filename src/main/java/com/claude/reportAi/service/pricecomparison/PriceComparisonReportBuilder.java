@@ -1076,6 +1076,13 @@ public class PriceComparisonReportBuilder {
         int start = s.indexOf('{');
         if (start < 0) return "{}";
         s = s.substring(start);
+
+        // Tronca qualsiasi testo dopo l'ultima } (es. postamble aggiunto da Gemini)
+        int lastClose = s.lastIndexOf('}');
+        if (lastClose >= 0) {
+            s = s.substring(0, lastClose + 1);
+        }
+
         int end = s.lastIndexOf('}');
         if (end > 0 && end == s.length() - 1) {
             return s;

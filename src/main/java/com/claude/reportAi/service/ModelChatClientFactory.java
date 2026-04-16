@@ -33,10 +33,9 @@ public class ModelChatClientFactory {
             new ModelInfo("claude-sonnet-4-5",         "Claude Sonnet 4.5", "anthropic", "Ottimo equilibrio qualità/velocità"),
             new ModelInfo("claude-opus-4-6",           "Claude Opus 4.6",   "anthropic", "Massima qualità Anthropic, più lento"),
             // Google Gemini via Vertex AI (GA = Generally Available, Preview = anteprima)
-            new ModelInfo("gemini-2.0-flash",                 "Gemini 2.0 Flash",         "gemini", "Stabile GA – veloce e preciso"),
-            new ModelInfo("gemini-2.0-flash-lite",            "Gemini 2.0 Flash Lite",     "gemini", "Stabile GA – versione leggera, più economica"),
-            new ModelInfo("gemini-2.5-flash-preview-04-17",   "Gemini 2.5 Flash (Preview)","gemini", "Preview – generazione più recente, veloce"),
-            new ModelInfo("gemini-2.5-pro-preview-05-06",     "Gemini 2.5 Pro (Preview)",  "gemini", "Preview – massima qualità Google, contesto 1M token")
+            new ModelInfo("gemini-2.5-pro",                 "gemini-2.5-pro",         "gemini", "Stabile GA – veloce e preciso"),
+            new ModelInfo("gemini-2.5-flash",            "gemini-2.5-flash",     "gemini", "Stabile GA – versione leggera, più economica"),
+            new ModelInfo("gemini-2.5-flash-lite",   "gemini-2.5-flash-lite","gemini", "Preview – generazione più recente, veloce")
     );
 
     public static boolean isAnthropicModel(String model) {
@@ -138,6 +137,7 @@ public class ModelChatClientFactory {
                 .model(model)
                 .temperature(0.1D)
                 .maxOutputTokens(maxTokens)
+                .responseMimeType("application/json")
                 .build();
 
         boolean hasImages = pageImages != null && !pageImages.isEmpty();

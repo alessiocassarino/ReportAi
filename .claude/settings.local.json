@@ -15,7 +15,9 @@
       "Bash(mvn --version)",
       "Bash(python3:*)",
       "Bash(del *)",
-      "Bash(xargs wc *)"
+      "Bash(xargs wc *)",
+      "Bash(jar tf *)",
+      "Bash(grep *)"
     ]
   }
 }
