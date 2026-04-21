@@ -255,11 +255,11 @@ public class PriceComparisonProcessor {
             byte[] docx = reportBuilder.build(comparisonJson, filenames);
 
             // Salvataggio risultato
-            String fileName = "confronto-offerte-"
-                    + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
-                    + ".docx";
-
             PriceComparison job = loadJob(jobId);
+            String fileName = job.getResultFileName() != null
+                    ? job.getResultFileName()
+                    : "confronto-offerte-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")) + ".docx";
+
             job.setStatus(PriceComparison.JobStatus.COMPLETED);
             job.setProgress(100);
             job.setCurrentStep("Confronto completato — " + total + " offerte analizzate");

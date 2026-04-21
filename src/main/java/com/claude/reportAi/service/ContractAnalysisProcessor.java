@@ -107,11 +107,11 @@ public class ContractAnalysisProcessor {
             byte[] docxContent = generateDocxReport(sectionResults, originalFilename, model);
 
             // Step 5 – Save result
-            String fileName = "risk-analysis-"
-                    + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
-                    + ".docx";
-
             ContractAnalysis job = loadJob(jobId);
+            String fileName = job.getResultFileName() != null
+                    ? job.getResultFileName()
+                    : "risk-analysis-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")) + ".docx";
+
             job.setStatus(ContractAnalysis.JobStatus.COMPLETED);
             job.setProgress(100);
             job.setCurrentStep("Analisi completata");

@@ -3,6 +3,7 @@ package com.claude.reportAi.service.estimate;
 import com.claude.reportAi.entities.Estimate;
 import com.claude.reportAi.repository.EstimateRepository;
 import com.claude.reportAi.service.ModelChatClientFactory;
+import com.claude.reportAi.util.FileNameSanitizer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -18,7 +19,7 @@ public class EstimateGenerationService {
     private final EstimateRepository estimateRepository;
     private final EstimateGenerationProcessor processor;
 
-    public UUID startGeneration(byte[] pdfBytes, String originalFilename, String model) {
+    public UUID startGeneration(byte[] pdfBytes, String originalFilename, String model, String customOutputFileName) {
         if (pdfBytes == null || pdfBytes.length == 0) {
             throw new IllegalArgumentException("Il file PDF non può essere vuoto.");
         }
@@ -32,6 +33,12 @@ public class EstimateGenerationService {
         job.setOriginalFilename(originalFilename);
         job.setProgress(0);
         job.setCurrentStep("In attesa di elaborazione");
+
+        String sanitizedOutputFileName = FileNameSanitizer.sanitize(customOutputFileName);
+        if (sanitizedOutputFileName != null) {
+            job.setResultFileName(sanitizedOutputFileName);
+        }
+
         estimateRepository.save(job);
 
         UUID jobId = job.getId();

@@ -2,6 +2,7 @@ package com.claude.reportAi.service;
 
 import com.claude.reportAi.entities.ContractAnalysis;
 import com.claude.reportAi.repository.ContractAnalysisRepository;
+import com.claude.reportAi.util.FileNameSanitizer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -18,7 +19,7 @@ public class ContractAnalysisService {
     private final ContractAnalysisRepository contractAnalysisRepository;
     private final ContractAnalysisProcessor processor;
 
-    public UUID startAnalysis(MultipartFile file, String model) throws IOException {
+    public UUID startAnalysis(MultipartFile file, String model, String customOutputFileName) throws IOException {
         validateFile(file);
         ModelChatClientFactory.findModel(model); // valida che il modello sia supportato
 
@@ -29,6 +30,12 @@ public class ContractAnalysisService {
         ContractAnalysis job = new ContractAnalysis();
         job.setModel(model);
         job.setOriginalFilename(originalFilename);
+
+        String sanitizedOutputFileName = FileNameSanitizer.sanitize(customOutputFileName);
+        if (sanitizedOutputFileName != null) {
+            job.setResultFileName(sanitizedOutputFileName);
+        }
+
         job = contractAnalysisRepository.save(job);
         UUID jobId = job.getId();
 

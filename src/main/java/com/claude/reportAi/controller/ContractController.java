@@ -41,11 +41,12 @@ public class ContractController {
     @PreAuthorize("hasAnyRole('ADMIN', 'USER', 'ANALYST')")
     public ResponseEntity<StartJobResponse> analyze(
             @RequestPart("file") MultipartFile file,
-            @RequestParam(value = "model", defaultValue = "claude-haiku-4-5-20251001") String model)
+            @RequestParam(value = "model", defaultValue = "claude-haiku-4-5-20251001") String model,
+            @RequestParam(value = "outputFileName", required = false) String outputFileName)
             throws IOException {
 
-        UUID jobId = contractAnalysisService.startAnalysis(file, model);
-        log.info("Job avviato: {} | model={}", jobId, model);
+        UUID jobId = contractAnalysisService.startAnalysis(file, model, outputFileName);
+        log.info("Job avviato: {} | model={} | outputFileName={}", jobId, model, outputFileName);
 
         return ResponseEntity.accepted().body(new StartJobResponse(
                 jobId.toString(),

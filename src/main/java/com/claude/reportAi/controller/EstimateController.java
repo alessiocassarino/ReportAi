@@ -35,7 +35,8 @@ public class EstimateController {
     @PreAuthorize("hasAnyRole('ADMIN', 'USER', 'ANALYST')")
     public ResponseEntity<StartJobResponse> generate(
             @RequestPart("file") MultipartFile file,
-            @RequestParam(value = "model", defaultValue = "claude-haiku-4-5-20251001") String model)
+            @RequestParam(value = "model", defaultValue = "claude-haiku-4-5-20251001") String model,
+            @RequestParam(value = "outputFileName", required = false) String outputFileName)
             throws IOException {
 
         String contentType = file.getContentType();
@@ -49,8 +50,8 @@ public class EstimateController {
                 ? file.getOriginalFilename()
                 : "document.pdf";
 
-        UUID jobId = estimateGenerationService.startGeneration(pdfBytes, originalFilename, model);
-        log.info("ReportJob avviato: {} | model={} | file={}", jobId, model, originalFilename);
+        UUID jobId = estimateGenerationService.startGeneration(pdfBytes, originalFilename, model, outputFileName);
+        log.info("ReportJob avviato: {} | model={} | file={} | outputFileName={}", jobId, model, originalFilename, outputFileName);
 
         return ResponseEntity.accepted().body(new StartJobResponse(
                 jobId.toString(),

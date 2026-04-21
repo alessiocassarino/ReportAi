@@ -153,11 +153,11 @@ public class EstimateGenerationProcessor {
             byte[] docx = estimateReportBuilder.build(reportJson, info, originalFilename);
 
             // Step 7 – Salvataggio risultato
-            String fileName = "estimate-"
-                    + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
-                    + ".docx";
-
             Estimate job = loadJob(jobId);
+            String fileName = job.getResultFileName() != null
+                    ? job.getResultFileName()
+                    : "estimate-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")) + ".docx";
+
             job.setStatus(Estimate.JobStatus.COMPLETED);
             job.setProgress(100);
             job.setCurrentStep("Preventivo completato");

@@ -38,7 +38,8 @@ public class PriceComparisonController {
     @PreAuthorize("hasAnyRole('ADMIN', 'USER', 'ANALYST')")
     public ResponseEntity<StartJobResponse> compare(
             @RequestPart("files") List<MultipartFile> files,
-            @RequestParam(value = "model", defaultValue = "claude-haiku-4-5-20251001") String model)
+            @RequestParam(value = "model", defaultValue = "claude-haiku-4-5-20251001") String model,
+            @RequestParam(value = "outputFileName", required = false) String outputFileName)
             throws IOException {
 
         if (files == null || files.isEmpty()) {
@@ -63,8 +64,8 @@ public class PriceComparisonController {
                     ? file.getOriginalFilename() : "offerta.pdf");
         }
 
-        UUID jobId = service.startComparison(fileContents, filenames, model);
-        log.info("PriceComparisonJob avviato: {} | model={} | numFiles={}", jobId, model, files.size());
+        UUID jobId = service.startComparison(fileContents, filenames, model, outputFileName);
+        log.info("PriceComparisonJob avviato: {} | model={} | numFiles={} | outputFileName={}", jobId, model, files.size(), outputFileName);
 
         return ResponseEntity.accepted().body(new StartJobResponse(
                 jobId.toString(),

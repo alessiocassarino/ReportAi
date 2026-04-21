@@ -3,6 +3,7 @@ package com.claude.reportAi.service.pricecomparison;
 import com.claude.reportAi.entities.PriceComparison;
 import com.claude.reportAi.repository.PriceComparisonRepository;
 import com.claude.reportAi.service.ModelChatClientFactory;
+import com.claude.reportAi.util.FileNameSanitizer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -19,7 +20,7 @@ public class PriceComparisonService {
     private final PriceComparisonRepository repository;
     private final PriceComparisonProcessor processor;
 
-    public UUID startComparison(List<byte[]> fileContents, List<String> filenames, String model) {
+    public UUID startComparison(List<byte[]> fileContents, List<String> filenames, String model, String customOutputFileName) {
         if (fileContents == null || fileContents.isEmpty()) {
             throw new IllegalArgumentException("Fornire almeno un file PDF.");
         }
@@ -36,6 +37,12 @@ public class PriceComparisonService {
         job.setNumFiles(fileContents.size());
         job.setProgress(0);
         job.setCurrentStep("In attesa di elaborazione");
+
+        String sanitizedOutputFileName = FileNameSanitizer.sanitize(customOutputFileName);
+        if (sanitizedOutputFileName != null) {
+            job.setResultFileName(sanitizedOutputFileName);
+        }
+
         repository.save(job);
 
         UUID jobId = job.getId();
