@@ -17,6 +17,9 @@ import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
+import com.claude.reportAi.service.estimate.WebSearchService;
+import java.util.List;
+import java.util.Map;
 
 @Component
 @Slf4j
@@ -25,21 +28,22 @@ public class EstimateReportBuilder {
     // -------------------------------------------------------------------------
     // Palette colori O&G
     // -------------------------------------------------------------------------
-    private static final String C_NAVY       = "0D2137";
-    private static final String C_ORANGE     = "E07B2A";
+    // ── Palette Light Theme (allineata al tema "Light" dell'app) ──────
+    private static final String C_NAVY       = "111827";  // near-black
+    private static final String C_ORANGE     = "6366F1";  // indigo accent
     private static final String C_WHITE      = "FFFFFF";
-    private static final String C_LIGHT_BG   = "F4F7FA";
-    private static final String C_MED_BG     = "EBF2FA";
-    private static final String C_DARK_TEXT  = "1A1A1A";
-    private static final String C_GRAY_TEXT  = "4A4A4A";
-    private static final String C_SEPARATOR  = "C9D5E0";
-    private static final String C_RED        = "C00000";
-    private static final String C_WARN       = "C55A11";
-    private static final String C_GREEN      = "1A7A4A";
-    private static final String C_SUBTOTAL   = "1B3A5C";
-    private static final String C_ALTO_BG    = "FFE7E7";
-    private static final String C_MEDIO_BG   = "FFF2CC";
-    private static final String C_BASSO_BG   = "E2EFDA";
+    private static final String C_LIGHT_BG   = "F9FAFB";  // surface chiara
+    private static final String C_MED_BG     = "EEF2FF";  // indigo tenue
+    private static final String C_DARK_TEXT  = "111827";  // near-black
+    private static final String C_GRAY_TEXT  = "6B7280";  // grigio medio
+    private static final String C_SEPARATOR  = "E5E7EB";  // bordo chiaro
+    private static final String C_RED        = "DC2626";
+    private static final String C_WARN       = "D97706";
+    private static final String C_GREEN      = "059669";
+    private static final String C_SUBTOTAL   = "4338CA";  // indigo scuro per totali
+    private static final String C_ALTO_BG    = "FEF2F2";
+    private static final String C_MEDIO_BG   = "FFFBEB";
+    private static final String C_BASSO_BG   = "F0FDF4";
 
     private static final int CONTENT_WIDTH = 9360;
 
@@ -60,7 +64,8 @@ public class EstimateReportBuilder {
     // Metodo principale
     // -------------------------------------------------------------------------
 
-    public byte[] build(String reportJson, ProjectInfoExtractor.ProjectInfo info, String originalFilename) throws Exception {
+    public byte[] build(String reportJson, ProjectInfoExtractor.ProjectInfo info, String originalFilename,
+                        Map<String, List<WebSearchService.SearchResult>> searchResults) throws Exception {
         JsonNode root = objectMapper.readTree(cleanJson(reportJson));
 
         try (XWPFDocument doc = new XWPFDocument()) {
@@ -77,6 +82,10 @@ public class EstimateReportBuilder {
             addRisksTable(doc, root);
             addPageBreak(doc);
             addTimeline(doc, root);
+            if (searchResults != null && !searchResults.isEmpty()) {
+                addPageBreak(doc);
+                addSearchAppendix(doc, searchResults);
+            }
 
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             doc.write(out);
@@ -90,15 +99,7 @@ public class EstimateReportBuilder {
     // -------------------------------------------------------------------------
 
     private void addCoverPage(XWPFDocument doc, JsonNode root, ProjectInfoExtractor.ProjectInfo info, String originalFilename) {
-        // Banda arancio confidenziale
-        XWPFTable confTable = doc.createTable(1, 1);
-        setTableWidth(confTable, CONTENT_WIDTH);
-        XWPFTableCell confCell = confTable.getRow(0).getCell(0);
-        setCellBackground(confCell, C_ORANGE);
-        setCellText(confCell, "CONFIDENZIALE — USO INTERNO", C_WHITE, 11, true);
-        confCell.getParagraphs().getFirst().setAlignment(ParagraphAlignment.CENTER);
-
-        addSpacer(doc, 3);
+        addSpacer(doc, 1);
 
         // Logo
         if (logoPath != null && !logoPath.isBlank()) {
@@ -113,7 +114,7 @@ public class EstimateReportBuilder {
                     XWPFRun logoRun = logoPara.createRun();
                     try (FileInputStream fis = new FileInputStream(logoFile)) {
                         logoRun.addPicture(fis, picType, fname,
-                                Units.toEMU(151.18), Units.toEMU(60.47));
+                                Units.toEMU(142), Units.toEMU(155));
                     }
                 } catch (Exception e) {
                     log.warn("Impossibile inserire logo da '{}': {}", logoPath, e.getMessage());
@@ -218,7 +219,7 @@ public class EstimateReportBuilder {
         XWPFTable footTable = doc.createTable(1, 1);
         setTableWidth(footTable, CONTENT_WIDTH);
         XWPFTableCell footCell = footTable.getRow(0).getCell(0);
-        setCellBackground(footCell, C_NAVY);
+        setCellBackground(footCell, C_ORANGE);
         setCellText(footCell, companyName + " — EPC Oil & Gas", C_WHITE, 9, false);
         footCell.getParagraphs().getFirst().setAlignment(ParagraphAlignment.CENTER);
     }
@@ -228,11 +229,11 @@ public class EstimateReportBuilder {
         XWPFTableRow row = table.getRow(rowIdx);
         int colW = CONTENT_WIDTH / 2;
         setCellWidth(row.getCell(0), colW);
-        setCellBackground(row.getCell(0), C_NAVY);
-        setCellText(row.getCell(0), label, C_WHITE, 10, true);
+        setCellBackground(row.getCell(0), C_MED_BG);
+        setCellText(row.getCell(0), label, C_DARK_TEXT, 10, true);
         setCellWidth(row.getCell(1), colW);
-        setCellBackground(row.getCell(1), C_SUBTOTAL);
-        setCellText(row.getCell(1), value != null ? value : "", C_WHITE, 10, false);
+        setCellBackground(row.getCell(1), C_WHITE);
+        setCellText(row.getCell(1), value != null ? value : "", C_DARK_TEXT, 10, false);
         return rowIdx + 1;
     }
 
@@ -651,6 +652,74 @@ public class EstimateReportBuilder {
     }
 
     // -------------------------------------------------------------------------
+    // Appendice fonti web
+    // -------------------------------------------------------------------------
+
+    private void addSearchAppendix(XWPFDocument doc,
+                                   Map<String, List<WebSearchService.SearchResult>> searchResults) {
+        addHeading1(doc, "7. APPENDICE — FONTI E RICERCHE DI MERCATO");
+        addBodyText(doc, "Riepilogo delle fonti di dati di mercato consultate per l'aggiornamento dei prezzi e delle stime.");
+        addSpacer(doc, 1);
+
+        for (Map.Entry<String, List<WebSearchService.SearchResult>> entry : searchResults.entrySet()) {
+            List<WebSearchService.SearchResult> results = entry.getValue();
+            if (results == null || results.isEmpty()) continue;
+
+            addHeading2(doc, entry.getKey());
+
+            for (int i = 0; i < Math.min(results.size(), 5); i++) {
+                WebSearchService.SearchResult r = results.get(i);
+
+                // Numero + titolo fonte
+                XWPFParagraph titlePara = doc.createParagraph();
+                setSpacingBefore(titlePara, 100);
+                XWPFRun numRun = titlePara.createRun();
+                numRun.setText("[" + (i + 1) + "]  ");
+                numRun.setBold(true);
+                numRun.setFontSize(10);
+                numRun.setColor(C_ORANGE);
+                numRun.setFontFamily("Calibri");
+                XWPFRun titleRun = titlePara.createRun();
+                titleRun.setText(r.title() != null ? r.title() : "");
+                titleRun.setBold(true);
+                titleRun.setFontSize(10);
+                titleRun.setColor(C_DARK_TEXT);
+                titleRun.setFontFamily("Calibri");
+
+                // URL
+                if (r.url() != null && !r.url().isBlank()) {
+                    XWPFParagraph urlPara = doc.createParagraph();
+                    urlPara.setIndentationLeft(400);
+                    XWPFRun urlRun = urlPara.createRun();
+                    urlRun.setText(r.url());
+                    urlRun.setFontSize(8);
+                    urlRun.setColor(C_ORANGE);
+                    urlRun.setItalic(true);
+                    urlRun.setFontFamily("Calibri");
+                }
+
+                // Snippet (primi 250 caratteri del contenuto)
+                String content = r.content() != null ? r.content().strip() : "";
+                if (!content.isBlank()) {
+                    String snippet = content.length() > 250
+                            ? content.substring(0, 250) + "…"
+                            : content;
+                    XWPFParagraph snippetPara = doc.createParagraph();
+                    snippetPara.setIndentationLeft(400);
+                    setSpacingAfter(snippetPara, 80);
+                    XWPFRun snippetRun = snippetPara.createRun();
+                    snippetRun.setText(snippet);
+                    snippetRun.setFontSize(9);
+                    snippetRun.setColor(C_GRAY_TEXT);
+                    snippetRun.setFontFamily("Calibri");
+                }
+            }
+
+            addSpacer(doc, 1);
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Helper methods POI
     // -------------------------------------------------------------------------
 
@@ -784,7 +853,7 @@ public class EstimateReportBuilder {
         };
         for (CTBorder b : allBorders) {
             b.setVal(STBorder.SINGLE);
-            b.setSz(BigInteger.valueOf(4));
+            b.setSz(BigInteger.valueOf(2));
             b.setColor(C_SEPARATOR);
         }
     }

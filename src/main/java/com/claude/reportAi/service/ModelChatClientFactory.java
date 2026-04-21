@@ -30,8 +30,10 @@ public class ModelChatClientFactory {
     public static final List<ModelInfo> SUPPORTED_MODELS = List.of(
             // Anthropic
             new ModelInfo("claude-haiku-4-5-20251001", "Claude Haiku 4.5",  "anthropic", "Più veloce ed economico – default"),
-            new ModelInfo("claude-sonnet-4-5",         "Claude Sonnet 4.5", "anthropic", "Ottimo equilibrio qualità/velocità"),
-            new ModelInfo("claude-opus-4-6",           "Claude Opus 4.6",   "anthropic", "Massima qualità Anthropic, più lento"),
+            new ModelInfo("claude-sonnet-4-5",         "Claude Sonnet 4.5", "anthropic", "Bilanciato – generazione precedente"),
+            new ModelInfo("claude-sonnet-4-6",         "Claude Sonnet 4.6", "anthropic", "Ottimo equilibrio qualità/velocità"),
+            new ModelInfo("claude-opus-4-6",           "Claude Opus 4.6",   "anthropic", "Alta qualità Anthropic"),
+            new ModelInfo("claude-opus-4-7",           "Claude Opus 4.7",   "anthropic", "Massima qualità Anthropic, più lento"),
             // Google Gemini via Vertex AI (GA = Generally Available, Preview = anteprima)
             new ModelInfo("gemini-2.5-pro",                 "gemini-2.5-pro",         "gemini", "Stabile GA – veloce e preciso"),
             new ModelInfo("gemini-2.5-flash",            "gemini-2.5-flash",     "gemini", "Stabile GA – versione leggera, più economica"),
@@ -72,7 +74,7 @@ public class ModelChatClientFactory {
     /**
      * Esegue una chiamata al modello selezionato con le opzioni appropriate.
      *
-     * @param model         ID modello (es. "claude-sonnet-4-5" o "mistral:7b")
+     * @param model         ID modello (es. "claude-sonnet-4-6" o "gemini-2.5-flash")
      * @param systemPrompt  prompt di sistema
      * @param userPrompt    prompt utente
      * @param maxTokens     numero massimo di token in output

@@ -153,6 +153,8 @@ public class ContractAnalysisProcessor {
         String userPrompt = buildSectionUserPrompt(section);
         int estimatedTokens = estimateTokens(SECTION_SYSTEM_PROMPT + userPrompt) + 600;
 
+        log.debug("Prompt sezione '{}' ({} chars):\n{}", section.title(), userPrompt.length(), userPrompt);
+
         // Rate limiter attivo solo per Anthropic (ha limiti TPM)
         if (ModelChatClientFactory.isAnthropicModel(model)) {
             rateLimiter.waitIfNeeded(estimatedTokens);
@@ -165,7 +167,10 @@ public class ContractAnalysisProcessor {
             rateLimiter.recordUsage(actualTokens);
         }
 
-        return response.getResult().getOutput().getText();
+        String result = response.getResult().getOutput().getText();
+        log.debug("Risposta sezione '{}': {} caratteri | token: {}",
+                section.title(), result != null ? result.length() : 0, actualTokens);
+        return result;
     }
 
     private String buildSectionUserPrompt(ContractSection section) {
@@ -210,6 +215,11 @@ public class ContractAnalysisProcessor {
         log.info("Contesto sintesi: {} caratteri (~{} token stimati)", aggregatedContext.length(), aggregatedContext.length() / 3);
         String synthesisPrompt = buildSynthesisPrompt(aggregatedContext, originalFilename);
 
+        log.info("Prompt sintesi finale: {} caratteri (~{} token stimati) | modello={}",
+                synthesisPrompt.length(), synthesisPrompt.length() / 3, model);
+        log.debug("System prompt di sintesi:\n{}", SYNTHESIS_SYSTEM_PROMPT);
+        log.debug("User prompt di sintesi completo:\n{}", synthesisPrompt);
+
         int estimatedTokens = estimateTokens(SYNTHESIS_SYSTEM_PROMPT + synthesisPrompt) + 4096;
         if (ModelChatClientFactory.isAnthropicModel(model)) {
             rateLimiter.waitIfNeeded(estimatedTokens);
@@ -223,7 +233,9 @@ public class ContractAnalysisProcessor {
         }
 
         String reportJson = response.getResult().getOutput().getText();
-        log.info("JSON sintesi ricevuto: {} caratteri", reportJson != null ? reportJson.length() : 0);
+        log.info("JSON sintesi ricevuto: {} caratteri | token totali: {}",
+                reportJson != null ? reportJson.length() : 0, actualTokens);
+        log.debug("JSON sintesi completo:\n{}", reportJson);
 
         return reportBuilder.build(reportJson, originalFilename);
     }

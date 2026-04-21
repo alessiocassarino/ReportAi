@@ -3,6 +3,7 @@ package com.claude.reportAi.service.pricecomparison;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.poi.util.Units;
 import org.apache.poi.xwpf.usermodel.*;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,25 +35,25 @@ import java.util.Locale;
 @Slf4j
 public class PriceComparisonReportBuilder {
 
-    // ── Palette colori O&G ────────────────────────────────────────────
-    private static final String C_NAVY      = "0D2137";
-    private static final String C_ORANGE    = "E07B2A";
+    // ── Palette Light Theme (allineata al tema "Light" dell'app) ──────
+    private static final String C_NAVY      = "111827";  // near-black
+    private static final String C_ORANGE    = "6366F1";  // indigo accent
     private static final String C_WHITE     = "FFFFFF";
-    private static final String C_LIGHT_BG  = "F4F7FA";
-    private static final String C_MED_BG    = "EBF2FA";
-    private static final String C_DARK_TEXT = "1A1A1A";
-    private static final String C_GRAY_TEXT = "4A4A4A";
-    private static final String C_SEPARATOR = "C9D5E0";
-    private static final String C_RED       = "C00000";
-    private static final String C_WARN      = "C55A11";
-    private static final String C_GREEN     = "1A7A4A";
-    private static final String C_GOLD      = "B8860B";
-    private static final String C_ALTO_BG   = "FFE7E7";
-    private static final String C_MEDIO_BG  = "FFF2CC";
-    private static final String C_BASSO_BG  = "E2EFDA";
-    private static final String C_RANK1_BG  = "D4EDDA";
-    private static final String C_RANK2_BG  = "FFF3CD";
-    private static final String C_RANK3_BG  = "F8D7DA";
+    private static final String C_LIGHT_BG  = "F9FAFB";  // surface chiara
+    private static final String C_MED_BG    = "EEF2FF";  // indigo tenue
+    private static final String C_DARK_TEXT = "111827";
+    private static final String C_GRAY_TEXT = "6B7280";
+    private static final String C_SEPARATOR = "E5E7EB";
+    private static final String C_RED       = "DC2626";
+    private static final String C_WARN      = "D97706";
+    private static final String C_GREEN     = "059669";
+    private static final String C_GOLD      = "D97706";  // amber
+    private static final String C_ALTO_BG   = "FEF2F2";
+    private static final String C_MEDIO_BG  = "FFFBEB";
+    private static final String C_BASSO_BG  = "F0FDF4";
+    private static final String C_RANK1_BG  = "D1FAE5";  // green tint
+    private static final String C_RANK2_BG  = "FEF9C3";  // yellow tint
+    private static final String C_RANK3_BG  = "FEE2E2";  // red tint
 
     private static final int CONTENT_WIDTH = 9360;
 
@@ -103,15 +104,7 @@ public class PriceComparisonReportBuilder {
     // ─────────────────────────────────────────────────────────────────
 
     private void addCoverPage(XWPFDocument doc, JsonNode root, List<String> filenames) {
-        // Banda confidenziale
-        XWPFTable confTable = doc.createTable(1, 1);
-        setTableWidth(confTable, CONTENT_WIDTH);
-        XWPFTableCell confCell = confTable.getRow(0).getCell(0);
-        setCellBackground(confCell, C_ORANGE);
-        setCellText(confCell, "CONFIDENZIALE — AD USO INTERNO", C_WHITE, 11, true);
-        confCell.getParagraphs().getFirst().setAlignment(ParagraphAlignment.CENTER);
-
-        addSpacer(doc, 2);
+        addSpacer(doc, 1);
 
         // Logo
         if (logoPath != null && !logoPath.isBlank()) {
@@ -123,7 +116,7 @@ public class PriceComparisonReportBuilder {
                     XWPFRun logoRun = logoPara.createRun();
                     String ext = logoPath.toLowerCase().endsWith(".png") ? "PNG" : "JPEG";
                     int picType = ext.equals("PNG") ? XWPFDocument.PICTURE_TYPE_PNG : XWPFDocument.PICTURE_TYPE_JPEG;
-                    logoRun.addPicture(fis, picType, "logo", 1440000, 540000);
+                    logoRun.addPicture(fis, picType, "logo", Units.toEMU(142), Units.toEMU(155));
                 } catch (Exception e) {
                     log.warn("Impossibile inserire logo: {}", e.getMessage());
                 }
@@ -157,7 +150,7 @@ public class PriceComparisonReportBuilder {
         // Linea decorativa
         XWPFTable lineTable = doc.createTable(1, 1);
         setTableWidth(lineTable, CONTENT_WIDTH);
-        setCellBackground(lineTable.getRow(0).getCell(0), C_NAVY);
+        setCellBackground(lineTable.getRow(0).getCell(0), C_ORANGE);
         setCellText(lineTable.getRow(0).getCell(0), "", C_WHITE, 4, false);
 
         addSpacer(doc, 2);
@@ -183,8 +176,8 @@ public class PriceComparisonReportBuilder {
         for (int i = 0; i < infoRows.length; i++) {
             XWPFTableRow row = infoTable.getRow(i);
             setCellWidth(row.getCell(0), half);
-            setCellBackground(row.getCell(0), C_NAVY);
-            setCellText(row.getCell(0), infoRows[i][0], C_WHITE, 10, true);
+            setCellBackground(row.getCell(0), C_MED_BG);
+            setCellText(row.getCell(0), infoRows[i][0], C_DARK_TEXT, 10, true);
             setCellWidth(row.getCell(1), half);
             setCellBackground(row.getCell(1), i % 2 == 0 ? C_LIGHT_BG : C_WHITE);
             setCellText(row.getCell(1), infoRows[i][1], C_DARK_TEXT, 10, false);
@@ -218,7 +211,7 @@ public class PriceComparisonReportBuilder {
         XWPFTable footerTable = doc.createTable(1, 1);
         setTableWidth(footerTable, CONTENT_WIDTH);
         XWPFTableCell footerCell = footerTable.getRow(0).getCell(0);
-        setCellBackground(footerCell, C_NAVY);
+        setCellBackground(footerCell, C_ORANGE);
         setCellText(footerCell, companyName + " — Documento riservato — Non distribuire", C_WHITE, 9, false);
         footerCell.getParagraphs().getFirst().setAlignment(ParagraphAlignment.CENTER);
     }
@@ -444,7 +437,7 @@ public class PriceComparisonReportBuilder {
             };
             for (int i = 0; i < 4; i++) {
                 setCellWidth(synthTable.getRow(0).getCell(i), qw);
-                setCellBackground(synthTable.getRow(0).getCell(i), i == 0 ? C_NAVY : rankBg);
+                setCellBackground(synthTable.getRow(0).getCell(i), i == 0 ? C_ORANGE : rankBg);
                 setCellText(synthTable.getRow(0).getCell(i), synthData[i][0] + ": " + synthData[i][1],
                         i == 0 ? C_WHITE : C_DARK_TEXT, 10, i == 0);
             }
@@ -764,7 +757,7 @@ public class PriceComparisonReportBuilder {
             XWPFTable savingTable = doc.createTable(1, 2);
             setTableWidth(savingTable, CONTENT_WIDTH / 2);
             setCellWidth(savingTable.getRow(0).getCell(0), CONTENT_WIDTH / 4);
-            setCellBackground(savingTable.getRow(0).getCell(0), C_NAVY);
+            setCellBackground(savingTable.getRow(0).getCell(0), C_ORANGE);
             setCellText(savingTable.getRow(0).getCell(0), "Saving vs Media Mercato", C_WHITE, 10, true);
             setCellWidth(savingTable.getRow(0).getCell(1), CONTENT_WIDTH / 4);
             setCellBackground(savingTable.getRow(0).getCell(1), C_BASSO_BG);
@@ -796,10 +789,10 @@ public class PriceComparisonReportBuilder {
             XWPFTable negTable = doc.createTable(negoziare.size() + 1, 2);
             setTableWidth(negTable, CONTENT_WIDTH);
             setCellWidth(negTable.getRow(0).getCell(0), 400);
-            setCellBackground(negTable.getRow(0).getCell(0), C_NAVY);
+            setCellBackground(negTable.getRow(0).getCell(0), C_ORANGE);
             setCellText(negTable.getRow(0).getCell(0), "#", C_WHITE, 10, true);
             setCellWidth(negTable.getRow(0).getCell(1), CONTENT_WIDTH - 400);
-            setCellBackground(negTable.getRow(0).getCell(1), C_NAVY);
+            setCellBackground(negTable.getRow(0).getCell(1), C_ORANGE);
             setCellText(negTable.getRow(0).getCell(1), "Punto di Negoziazione", C_WHITE, 10, true);
 
             int ni = 1;
@@ -843,7 +836,7 @@ public class PriceComparisonReportBuilder {
         XWPFTable footerTable = doc.createTable(1, 1);
         setTableWidth(footerTable, CONTENT_WIDTH);
         XWPFTableCell footerCell = footerTable.getRow(0).getCell(0);
-        setCellBackground(footerCell, C_NAVY);
+        setCellBackground(footerCell, C_ORANGE);
         setCellText(footerCell,
                 companyName + " — Documento di Valutazione Fornitori — Generato il " +
                 LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy")),
@@ -1025,7 +1018,7 @@ public class PriceComparisonReportBuilder {
         };
         for (CTBorder b : allBorders) {
             b.setVal(STBorder.SINGLE);
-            b.setSz(BigInteger.valueOf(4));
+            b.setSz(BigInteger.valueOf(2));
             b.setColor(C_SEPARATOR);
         }
     }

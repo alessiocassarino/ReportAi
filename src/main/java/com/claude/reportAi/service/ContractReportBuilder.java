@@ -3,11 +3,15 @@ package com.claude.reportAi.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.poi.util.Units;
 import org.apache.poi.xwpf.usermodel.*;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.*;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
 import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -21,20 +25,26 @@ import java.util.Locale;
 @Slf4j
 public class ContractReportBuilder {
 
-    // Palette colori
-    private static final String COLOR_NAVY      = "1F3864";
+    // ── Palette Light Theme (allineata al tema "Light" dell'app) ──────
+    private static final String COLOR_NAVY      = "111827";  // near-black
     private static final String COLOR_WHITE     = "FFFFFF";
-    private static final String COLOR_ALTO      = "C00000";
-    private static final String COLOR_MEDIO     = "C55A11";
-    private static final String COLOR_BASSO     = "375623";
-    private static final String COLOR_ALTO_BG   = "FFE7E7";
-    private static final String COLOR_MEDIO_BG  = "FFF2CC";
-    private static final String COLOR_BASSO_BG  = "E2EFDA";
-    private static final String COLOR_ROW_ALT   = "EBF3FB";
-    private static final String COLOR_GRAY_TEXT = "595959";
+    private static final String COLOR_ALTO      = "DC2626";  // red
+    private static final String COLOR_MEDIO     = "D97706";  // amber
+    private static final String COLOR_BASSO     = "059669";  // green
+    private static final String COLOR_ALTO_BG   = "FEF2F2";
+    private static final String COLOR_MEDIO_BG  = "FFFBEB";
+    private static final String COLOR_BASSO_BG  = "F0FDF4";
+    private static final String COLOR_ROW_ALT   = "F9FAFB";  // surface chiara
+    private static final String COLOR_GRAY_TEXT = "6B7280";
 
-    // Dimensioni pagina (twips: 1440 = 1 inch)
-    private static final int CONTENT_WIDTH = 9360; // A4 con margini 1 inch
+    private static final String COLOR_ORANGE    = "6366F1";  // indigo accent
+    private static final int    CONTENT_WIDTH   = 9360;
+
+    @Value("${app.report.logo-path:}")
+    private String logoPath;
+
+    @Value("${app.report.company-name:NEXONIQ}")
+    private String companyName;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -65,7 +75,31 @@ public class ContractReportBuilder {
     // -------------------------------------------------------------------------
 
     private void addCoverPage(XWPFDocument doc, String filename, JsonNode root) {
-        addSpacer(doc, 6);
+        addSpacer(doc, 1);
+
+        // Logo
+        if (logoPath != null && !logoPath.isBlank()) {
+            File logoFile = new File(logoPath);
+            if (logoFile.exists() && logoFile.isFile()) {
+                try {
+                    int picType = logoPath.toLowerCase().endsWith(".png")
+                            ? XWPFDocument.PICTURE_TYPE_PNG
+                            : XWPFDocument.PICTURE_TYPE_JPEG;
+                    XWPFParagraph logoPara = doc.createParagraph();
+                    logoPara.setAlignment(ParagraphAlignment.CENTER);
+                    XWPFRun logoRun = logoPara.createRun();
+                    try (FileInputStream fis = new FileInputStream(logoFile)) {
+                        logoRun.addPicture(fis, picType, logoFile.getName(),
+                                Units.toEMU(142), Units.toEMU(155));
+                    }
+                } catch (Exception e) {
+                    log.warn("Impossibile inserire logo da '{}': {}", logoPath, e.getMessage());
+                    addSpacer(doc, 3);
+                }
+            }
+        }
+
+        addSpacer(doc, 2);
 
         XWPFParagraph titlePara = doc.createParagraph();
         titlePara.setAlignment(ParagraphAlignment.CENTER);
@@ -288,7 +322,7 @@ public class ContractReportBuilder {
                         raccLabel.setBold(true);
                         raccLabel.setItalic(true);
                         raccLabel.setFontSize(9);
-                        raccLabel.setColor("2E4899");
+                        raccLabel.setColor(COLOR_ORANGE);
                         raccLabel.setFontFamily("Calibri");
 
                         XWPFRun raccRun = raccPara.createRun();
@@ -416,7 +450,7 @@ public class ContractReportBuilder {
         CTBorder bottom = pBdr.isSetBottom() ? pBdr.getBottom() : pBdr.addNewBottom();
         bottom.setVal(STBorder.SINGLE);
         bottom.setSz(BigInteger.valueOf(6));
-        bottom.setColor(COLOR_NAVY);
+        bottom.setColor(COLOR_ORANGE);
         bottom.setSpace(BigInteger.valueOf(4));
 
         XWPFRun run = para.createRun();
@@ -542,8 +576,8 @@ public class ContractReportBuilder {
         };
         for (CTBorder b : allBorders) {
             b.setVal(STBorder.SINGLE);
-            b.setSz(BigInteger.valueOf(4));
-            b.setColor("BFBFBF");
+            b.setSz(BigInteger.valueOf(2));
+            b.setColor("E5E7EB");
         }
     }
 

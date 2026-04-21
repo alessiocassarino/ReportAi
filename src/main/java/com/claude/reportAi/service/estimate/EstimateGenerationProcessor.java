@@ -15,6 +15,8 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.time.Year;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -39,18 +41,18 @@ public class EstimateGenerationProcessor {
     private final ObjectMapper objectMapper;
 
     private static final String SYSTEM_PROMPT = """
-            Sei un cost estimator / tendering manager senior con 30 anni di esperienza specifica in EPC oil & gas onshore.
-            Conosci perfettamente i processi di ingegneria e i loro costi, i materiali, le operazioni di cantiere, le
-            interfacce tra civile e meccanico e elettrico e strumentale, i rischi reali di progetto, le normative locali e le pratiche di mercato.
-
-            Regole obbligatorie:
-            - Ragiona SEMPRE nell'interesse del Contractor
-            - Sulle stime di Costruzione, priorità assoluta ai prezzi interni aziendali forniti; usa i dati di mercato per le voci mancanti
-            - Fornisci stime di durata tenendo in considerazione la schedula (Gantt) o le tempistiche fornite nel documento
-            - Fornisci stime realistiche e conservative (meglio sovrastimare)
-            - Tutti gli importi in USD
-            - Lingua del report: italiano
-            - Rispondi ESCLUSIVAMENTE con un oggetto JSON valido, senza markdown, senza testo prima o dopo
+            Sei un cost estimator / tendering manager senior con 30 anni di esperienza specifica in EPC oil & gas onshore per pipeline e altri impianti.
+                        Conosci perfettamente i processi di ingegneria e i loro costi, i materiali, le operazioni di cantiere, le
+                        interfacce tra civile e meccanico e elettrico e strumentale, i rischi reali di progetto, le normative locali e le pratiche di mercato.
+            
+                        Regole obbligatorie:
+                        - Ragiona SEMPRE nell'interesse del Contractor
+                        - Sulle stime di Costruzione, priorità assoluta ai prezzi interni aziendali forniti; usa i dati di mercato per le voci mancanti. Per le stazioni delle valvole, di compressione e di scraper, prendi sempre come riferimento i pollici da saldare e le opere civili, meccaniche, elettro/strumentali da realizzare (non sovrastimmare)
+                        - Fornisci stime di durata tenendo in considerazione la schedula (Gantt) o le tempistiche fornite nel documento ed imposta le squadre e produzioni seguendo i dati aziendali forniti
+                        - Fornisci stime realistiche e conservative.\s
+                        - Tutti gli importi in USD al cambio del giorno del report
+                        - Lingua del report: italiano
+                        - Rispondi ESCLUSIVAMENTE con un oggetto JSON valido, senza markdown, senza testo prima o dopo
             """;
 
     @Async("reportGenerationExecutor")
@@ -78,29 +80,37 @@ public class EstimateGenerationProcessor {
             // Step 3 – Recupero prezzi interni
             updateProgress(jobId, 25, "Recupero prezzi interni aziendali");
             String internalPricing = internalPricingRetriever.retrieveContext(info);
+            log.info("Prezzi interni (vector store): {} caratteri (~{} token stimati)",
+                    internalPricing != null ? internalPricing.length() : 0,
+                    internalPricing != null ? internalPricing.length() / 3 : 0);
+            log.debug("Vector store — contenuto completo (non incluso nel report):\n{}", internalPricing);
 
             // Step 4 – Ricerche web (7 categorie, progress 35→65)
             String paese = info.nazione() != null ? info.nazione() : "N/D";
             String tipo  = info.tipoProgetto() != null ? info.tipoProgetto().toLowerCase() : "pipeline";
 
+            int currentYear = Year.now().getValue();
+            int previousYear = currentYear - 1;
+
+
             List<Map.Entry<String, String>> searchCategories = List.of(
                     Map.entry("COSTI MATERIALI DI PROGETTO",
-                            tipo + " pipeline pipe valves fittings material cost " + paese + " 2024 2025 USD"),
+                            tipo + " pipeline pipe valves fittings material cost " + paese + " " + currentYear + " " + previousYear + " USD"),
                     Map.entry("COSTI DI MOBILIZZAZIONE DALL'ITALIA",
-                            "heavy equipment mobilization Italy " + paese + " transport logistics cost 2024"),
+                            "heavy equipment mobilization Italy " + paese + " transport logistics cost " + currentYear),
                     Map.entry("BASI LOGISTICHE E ACCOMMODATION",
-                            "labor camp accommodation catering oil gas " + paese + " daily rate USD person 2024"),
+                            "labor camp accommodation catering oil gas " + paese + " daily rate USD person " + currentYear),
                     Map.entry("COSTI SICUREZZA",
-                            "security services requirements oil gas construction " + paese + " cost 2024"),
+                            "security services requirements oil gas construction " + paese + " cost " + currentYear),
                     Map.entry("MATERIALI CONSUMABILI",
-                            "welding electrodes fuel diesel lubricants PPE cement steel " + paese + " construction prices 2024"),
+                            "welding electrodes fuel diesel lubricants PPE cement steel " + paese + " construction prices " + currentYear),
                     Map.entry("TASSAZIONE E ONERI FISCALI",
-                            "WHT withholding tax VAT customs duty foreign EPC contractor " + paese + " oil gas 2025"),
+                            "WHT withholding tax VAT customs duty foreign EPC contractor " + paese + " oil gas " + currentYear),
                     Map.entry("COSTO DELLA MANODOPERA",
-                            paese + " pipeline construction worker salary daily rate USD 2024 local expat")
+                            paese + " pipeline construction worker salary daily rate USD " + currentYear + " local expat")
             );
 
-            Map<String, String> searchResults = new LinkedHashMap<>();
+            Map<String, List<WebSearchService.SearchResult>> searchResults = new LinkedHashMap<>();
             int searchTotal = searchCategories.size();
             for (int i = 0; i < searchTotal; i++) {
                 Map.Entry<String, String> entry = searchCategories.get(i);
@@ -111,14 +121,10 @@ public class EstimateGenerationProcessor {
                 updateProgress(jobId, progress, "Ricerca: " + categoria);
 
                 List<WebSearchService.SearchResult> results = webSearchService.search(query);
-                StringBuilder sb = new StringBuilder();
-                for (int j = 0; j < results.size(); j++) {
-                    WebSearchService.SearchResult r = results.get(j);
-                    sb.append("[").append(j + 1).append("] ").append(r.title()).append("\n");
-                    sb.append(r.url()).append("\n");
-                    sb.append(r.content()).append("\n\n");
-                }
-                searchResults.put(categoria, sb.toString().trim());
+                log.info("Ricerca web [{}/{}] '{}': {} risultati | query='{}'",
+                        i + 1, searchTotal, categoria, results.size(), query);
+                log.debug("Ricerca web '{}' — risultati completi:\n{}", categoria, formatResultsForLog(results));
+                searchResults.put(categoria, results);
             }
 
             List<byte[]> pageImages = List.of();
@@ -133,6 +139,11 @@ public class EstimateGenerationProcessor {
             updateProgress(jobId, 70, "Generazione preventivo con " + model);
             String userPrompt = buildUserPrompt(info, internalPricing, searchResults, !pageImages.isEmpty());
 
+            log.info("Prompt inviato al modello: {} caratteri (~{} token stimati) | {} immagini | modello={}",
+                    userPrompt.length(), userPrompt.length() / 3, pageImages.size(), model);
+            log.debug("System prompt:\n{}", SYSTEM_PROMPT);
+            log.debug("User prompt completo:\n{}", userPrompt);
+
             int estimatedTokens = userPrompt.length() / 3;
             if (ModelChatClientFactory.isAnthropicModel(model)) {
                 tokenRateLimiter.waitIfNeeded(estimatedTokens);
@@ -146,11 +157,13 @@ public class EstimateGenerationProcessor {
             }
 
             String reportJson = response.getResult().getOutput().getText();
-            log.info("JSON preventivo ricevuto: {} caratteri", reportJson != null ? reportJson.length() : 0);
+            log.info("Risposta modello ricevuta: {} caratteri | token totali: {} | modello={}",
+                    reportJson != null ? reportJson.length() : 0, actualTokens, model);
+            log.debug("JSON preventivo completo:\n{}", reportJson);
 
             // Step 6 – Generazione documento Word
             updateProgress(jobId, 85, "Generazione documento Word");
-            byte[] docx = estimateReportBuilder.build(reportJson, info, originalFilename);
+            byte[] docx = estimateReportBuilder.build(reportJson, info, originalFilename, searchResults);
 
             // Step 7 – Salvataggio risultato
             Estimate job = loadJob(jobId);
@@ -202,7 +215,7 @@ public class EstimateGenerationProcessor {
     private String buildUserPrompt(
             ProjectInfoExtractor.ProjectInfo info,
             String internalPricing,
-            Map<String, String> searchResults,
+            Map<String, List<WebSearchService.SearchResult>> searchResults,
             boolean hasImages) throws Exception {
 
         // Map.of() supporta max 10 entries — usiamo LinkedHashMap per mantenere l'ordine
@@ -234,10 +247,19 @@ public class EstimateGenerationProcessor {
         sb.append("[DATI DI MERCATO AGGIORNATI - NAZIONE: ")
           .append(info.nazione() != null ? info.nazione() : "N/D").append("]\n");
 
-        for (Map.Entry<String, String> entry : searchResults.entrySet()) {
+        for (Map.Entry<String, List<WebSearchService.SearchResult>> entry : searchResults.entrySet()) {
             sb.append("=== ").append(entry.getKey()).append(" ===\n");
-            String val = entry.getValue();
-            sb.append(val.isBlank() ? "Nessun dato disponibile." : val).append("\n\n");
+            List<WebSearchService.SearchResult> results = entry.getValue();
+            if (results == null || results.isEmpty()) {
+                sb.append("Nessun dato disponibile.\n\n");
+            } else {
+                for (int j = 0; j < results.size(); j++) {
+                    WebSearchService.SearchResult r = results.get(j);
+                    sb.append("[").append(j + 1).append("] ").append(r.title()).append("\n");
+                    sb.append(r.url()).append("\n");
+                    sb.append(r.content()).append("\n\n");
+                }
+            }
         }
 
         sb.append("[ISTRUZIONI]\n");
@@ -249,9 +271,6 @@ public class EstimateGenerationProcessor {
         sb.append("Genera un preventivo dettagliato per questo progetto.\n");
 
         String tipoUp = info.tipoProgetto() != null ? info.tipoProgetto().toUpperCase() : "";
-        if ("PIPELINE".equals(tipoUp) && info.avanzamentoMGiorno() == null) {
-            sb.append("Per la pipeline, considera un avanzamento medio di 600-700 m/giorno con un numero adeguato di mezzi per linea principale e tie-in in parallelo.\n");
-        }
 
         sb.append("I costi finanziari, overhead e assicurazioni devono essere pari al 12% del totale parziale.\n");
         sb.append("Includi sempre: mobilizzazione, costruzione, subcontratti/forniture, indiretti, vitto/alloggio, contingency/finanziari.\n");
@@ -361,5 +380,20 @@ public class EstimateGenerationProcessor {
             }
         } catch (Exception ignored) {}
         return fallback;
+    }
+
+    private String formatResultsForLog(List<WebSearchService.SearchResult> results) {
+        if (results == null || results.isEmpty()) return "(nessun risultato)";
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < results.size(); i++) {
+            WebSearchService.SearchResult r = results.get(i);
+            String snippet = r.content() != null
+                    ? r.content().substring(0, Math.min(150, r.content().length())) + "..."
+                    : "";
+            sb.append("  [").append(i + 1).append("] ").append(r.title()).append("\n");
+            sb.append("       ").append(r.url()).append("\n");
+            sb.append("       ").append(snippet).append("\n");
+        }
+        return sb.toString();
     }
 }

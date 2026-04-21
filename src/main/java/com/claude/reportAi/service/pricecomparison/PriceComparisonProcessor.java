@@ -128,10 +128,10 @@ public class PriceComparisonProcessor {
                     fullText = "";
                 }
                 String truncatedText = truncateText(fullText, MAX_TEXT_PER_FILE);
-                log.info("[PC-DEBUG][job={}][file {}/{}] Testo '{}': {} car. originali → {} car. inviati",
-                        jobId, i + 1, total, filename, fullText.length(), truncatedText.length());
-                log.info("[PC-DEBUG][job={}][file {}/{}] Anteprima testo estratto (primi 500 chars):\n>>>{}<<<",
-                        jobId, i + 1, total, filename,
+                log.info("Testo estratto da '{}': {} car. originali → {} car. inviati al modello",
+                        filename, fullText.length(), truncatedText.length());
+                log.debug("Anteprima testo estratto da '{}' (primi 500 chars):\n{}",
+                        filename,
                         truncatedText.isEmpty() ? "<VUOTO>"
                                 : truncatedText.substring(0, Math.min(500, truncatedText.length())));
 
@@ -167,6 +167,9 @@ public class PriceComparisonProcessor {
                         "Elaborazione AI offerta " + (i + 1) + "/" + total + " (" + filename + ")");
 
                 String extractionPrompt = buildExtractionPrompt(filename, truncatedText, !images.isEmpty());
+                log.info("Prompt estrazione '{}': {} caratteri (~{} token) | {} immagini",
+                        filename, extractionPrompt.length(), estimateTokens(extractionPrompt, images), images.size());
+                log.debug("Prompt estrazione '{}' completo:\n{}", filename, extractionPrompt);
                 int estimatedTokens = estimateTokens(extractionPrompt, images);
 
                 if (ModelChatClientFactory.isAnthropicModel(model)) {
@@ -182,6 +185,8 @@ public class PriceComparisonProcessor {
                 }
 
                 String rawSupplierJson = extractionResp.getResult().getOutput().getText();
+                log.info("Risposta estrazione '{}': {} caratteri | token: {}",
+                        filename, rawSupplierJson != null ? rawSupplierJson.length() : 0, actualTokens);
                 if (rawSupplierJson == null || rawSupplierJson.isBlank()) {
                     rawSupplierJson = "{\"nome_fornitore\": \"" + filename + "\", \"errore\": \"Nessun dato estratto\"}";
                 }
@@ -192,9 +197,7 @@ public class PriceComparisonProcessor {
                 String supplierJson = cleanSupplierJson(rawSupplierJson, filename, jobId);
                 supplierJsons.add(supplierJson);
 
-                // ── LOG COMPLETO supplierJson per diagnosticare errori di estrazione ──
-                log.info("[PC-DEBUG][job={}][file {}/{}] supplierJson pulito per '{}':\n{}",
-                        jobId, i + 1, total, filename, supplierJson);
+                log.debug("supplierJson pulito per '{}' ({} chars):\n{}", filename, supplierJson.length(), supplierJson);
 
                 // Raccoglie l'entry di debug per persistenza su DB
                 String textPreview = truncatedText.isEmpty() ? ""
@@ -211,7 +214,7 @@ public class PriceComparisonProcessor {
                 PriceComparison jobDebug = loadJob(jobId);
                 jobDebug.setDebugSupplierJsons("[" + String.join(",", debugEntries) + "]");
                 repository.save(jobDebug);
-                log.info("[PC-DEBUG][job={}] supplierJsons persistiti su DB ({} file)", jobId, total);
+                log.info("supplierJsons persistiti su DB | job={} | file={}", jobId, total);
             }
 
             // ── FASE 2: Confronto comparativo ──
@@ -221,6 +224,10 @@ public class PriceComparisonProcessor {
 
             String comparisonPrompt = buildComparisonPrompt(supplierJsons, filenames);
             int compTokens = comparisonPrompt.length() / 3;
+
+            log.info("Prompt confronto comparativo: {} caratteri (~{} token) | {} fornitori | modello={}",
+                    comparisonPrompt.length(), compTokens, total, model);
+            log.debug("Prompt confronto completo:\n{}", comparisonPrompt);
 
             if (ModelChatClientFactory.isAnthropicModel(model)) {
                 tokenRateLimiter.waitIfNeeded(compTokens);
@@ -238,8 +245,10 @@ public class PriceComparisonProcessor {
             }
 
             String comparisonJson = compResponse.getResult().getOutput().getText();
-            log.info("[PC-DEBUG][job={}] comparisonJson grezzo da LLM ({} car.):\n{}",
-                    jobId, comparisonJson != null ? comparisonJson.length() : 0, comparisonJson);
+            log.info("Risposta confronto comparativo: {} caratteri | token: {}",
+                    comparisonJson != null ? comparisonJson.length() : 0,
+                    extractActualTokens(compResponse, compTokens));
+            log.debug("JSON confronto completo:\n{}", comparisonJson);
 
             // Persiste il comparisonJson grezzo: permette di confrontarlo con il DOCX finale
             // e capire se i dati si perdono nel merge LLM o nel ReportBuilder.
@@ -247,7 +256,7 @@ public class PriceComparisonProcessor {
                 PriceComparison jobDebug = loadJob(jobId);
                 jobDebug.setDebugComparisonJson(comparisonJson);
                 repository.save(jobDebug);
-                log.info("[PC-DEBUG][job={}] comparisonJson persistito su DB", jobId);
+                log.info("comparisonJson persistito su DB | job={}", jobId);
             }
 
             // ── FASE 3: Generazione documento Word ──
@@ -625,8 +634,7 @@ public class PriceComparisonProcessor {
         // 2. Trova l'inizio del JSON
         int start = s.indexOf('{');
         if (start < 0) {
-            log.warn("[PC-DEBUG][job={}] supplierJson per '{}': nessun oggetto JSON trovato nel testo",
-                    jobId, filename);
+            log.warn("supplierJson per '{}': nessun oggetto JSON trovato nella risposta LLM | job={}", filename, jobId);
             return "{\"nome_fornitore\": \"" + filename + "\", \"errore\": \"JSON non trovato nella risposta LLM\"}";
         }
         s = s.substring(start);
@@ -641,11 +649,9 @@ public class PriceComparisonProcessor {
         if (!truncated) return s;
 
         // 4. JSON troncato — logga warning e ripara
-        log.warn("[PC-DEBUG][job={}] supplierJson TRONCATO per '{}': "
-                + "{}x'{{' vs {}x'}}', {}x'[' vs {}x']' — applicata riparazione best-effort. "
-                + "Causa probabile: risposta LLM oltre max_tokens. "
-                + "I campi troncati risulteranno assenti (non inventati) nel confronto finale.",
-                jobId, filename, opens, closes, arrO, arrC);
+        log.warn("supplierJson TRONCATO per '{}': {}x'{{' vs {}x'}}', {}x'[' vs {}x']' — riparazione best-effort. "
+                + "Causa: max_tokens superato. Campi troncati saranno assenti nel confronto finale | job={}",
+                filename, opens, closes, arrO, arrC, jobId);
 
         StringBuilder sb = new StringBuilder(s.stripTrailing());
         // Rimuovi virgola finale spuria (non valida come ultimo token JSON)

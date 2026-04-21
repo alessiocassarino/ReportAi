@@ -132,10 +132,52 @@ public class ProjectInfoExtractor {
         if (start < 0) return "{}";
         s = s.substring(start);
         int end = s.lastIndexOf('}');
-        if (end > 0 && end == s.length() - 1) {
-            return s;
-        }
+        if (end >= 0) s = s.substring(0, end + 1); // taglia spazzatura dopo l'ultimo }
+        s = fixBareKeys(s);                         // ripara chiavi senza valore (bug Gemini)
+        if (s.endsWith("}")) return s;
         return repairTruncatedJson(s);
+    }
+
+    /**
+     * Gemini restituisce occasionalmente chiavi senza valore, es. {@code "note_tecniche"} seguito da
+     * {@code }} o {@code ,} senza {@code :}. Questo metodo inserisce {@code : null} in quei casi.
+     */
+    private String fixBareKeys(String json) {
+        StringBuilder sb = new StringBuilder(json);
+        int i = 0;
+        while (i < sb.length()) {
+            char c = sb.charAt(i);
+            if (c != '"') { i++; continue; }
+
+            int strStart = i++;
+            // Scansiona fino alla virgoletta chiudente
+            while (i < sb.length()) {
+                char sc = sb.charAt(i++);
+                if (sc == '\\') { i++; }      // salta escape
+                else if (sc == '"') break;
+            }
+            int strEnd = i; // indice dopo la virgoletta chiudente
+
+            // Salta whitespace
+            int wsEnd = i;
+            while (wsEnd < sb.length() && Character.isWhitespace(sb.charAt(wsEnd))) wsEnd++;
+            if (wsEnd >= sb.length()) break;
+
+            char next = sb.charAt(wsEnd);
+            if (next == '}' || next == ',') {
+                // Chiave bare: verifica che il char precedente la stringa sia { o ,
+                String before = sb.substring(0, strStart).stripTrailing();
+                if (!before.isEmpty()) {
+                    char prev = before.charAt(before.length() - 1);
+                    if (prev == '{' || prev == ',') {
+                        sb.insert(strEnd, ": null");
+                        i = strEnd + 6; // riposiziona dopo ": null"
+                        continue;
+                    }
+                }
+            }
+        }
+        return sb.toString();
     }
 
     private String repairTruncatedJson(String json) {
