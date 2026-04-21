@@ -15,7 +15,7 @@ import java.util.Deque;
 @Slf4j
 public class TokenRateLimiter {
 
-    private static final int TOKENS_PER_MINUTE = 27_000;
+    private static final int TOKENS_PER_MINUTE = 80_000;
     private static final long WINDOW_MS = 60_000L;
 
     private final Deque<long[]> usageWindow = new ArrayDeque<>(); // [timestamp, tokens]

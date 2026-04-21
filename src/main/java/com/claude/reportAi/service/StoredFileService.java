@@ -102,6 +102,7 @@ public class StoredFileService {
                     .sha256(sha256)
                     .sizeBytes((long) bytes.length)
                     .storagePath(destination.toAbsolutePath().toString())
+                    .content(bytes)
                     .extractedText(extraction.text())
                     .metadataJson(objectMapper.writeValueAsString(extraction.tikaMetadata()))
                     .extractionStatus("DONE")

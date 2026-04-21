@@ -34,6 +34,9 @@ public class StoredFile {
     @Column(nullable = false)
     private String storagePath;
 
+    @Column(columnDefinition = "BYTEA")
+    private byte[] content;
+
     @Column(columnDefinition = "TEXT")
     private String extractedText;
 

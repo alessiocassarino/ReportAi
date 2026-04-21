@@ -1,11 +1,14 @@
 package com.claude.reportAi.controller;
 
+import com.claude.reportAi.entities.StoredFile;
 import com.claude.reportAi.entities.VectoreUpload;
+import com.claude.reportAi.repository.StoredFileRepository;
 import com.claude.reportAi.repository.VectorUploadRepository;
 import com.claude.reportAi.service.StoredFileIngestionProcessor;
 import com.claude.reportAi.service.StoredFileService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -33,6 +36,7 @@ public class StoredFileController {
 
     private final StoredFileIngestionProcessor ingestionProcessor;
     private final VectorUploadRepository vectorUploadRepository;
+    private final StoredFileRepository storedFileRepository;
 
     /**
      * Accepts one or more files and starts async ingestion for each.
@@ -91,6 +95,40 @@ public class StoredFileController {
                 job.getErrorMessage(),
                 job.getCreatedAt() != null ? job.getCreatedAt().toString() : null
         ));
+    }
+
+    /**
+     * Downloads the original file associated with the given upload job.
+     * Only available for jobs that completed successfully (COMPLETED, ALREADY_EXISTS, NO_TEXT).
+     */
+    @GetMapping("/{jobId}/result")
+    @PreAuthorize("hasAnyRole('ADMIN', 'USER', 'ANALYST')")
+    public ResponseEntity<byte[]> result(@PathVariable UUID jobId) throws IOException {
+        VectoreUpload job = vectorUploadRepository.findById(jobId)
+                .orElseThrow(() -> new NoSuchElementException("Job non trovato: " + jobId));
+
+        if (job.getStoredFileId() == null) {
+            throw new NoSuchElementException("Nessun file associato al job: " + jobId);
+        }
+
+        StoredFile storedFile = storedFileRepository.findById(job.getStoredFileId())
+                .orElseThrow(() -> new NoSuchElementException("File non trovato: " + job.getStoredFileId()));
+
+        byte[] content = storedFile.getContent();
+        if (content == null || content.length == 0) {
+            throw new NoSuchElementException("Contenuto non disponibile per il file: " + storedFile.getOriginalFilename());
+        }
+
+        String contentType = storedFile.getContentType() != null
+                ? storedFile.getContentType()
+                : MediaType.APPLICATION_OCTET_STREAM_VALUE;
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"" + storedFile.getOriginalFilename() + "\"")
+                .contentType(MediaType.parseMediaType(contentType))
+                .contentLength(content.length)
+                .body(content);
     }
 
     // -----------------------------------------------------------------------

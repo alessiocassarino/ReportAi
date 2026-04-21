@@ -18,10 +18,10 @@ import java.util.UUID;
  * REST API for asynchronous cost estimate (preventivo) generation.
  * <p>
  * Flow:
- *   0. GET  /api/reports/models               → lista modelli disponibili
- *   1. POST /api/reports/generate             → upload PDF + model, receive jobId
- *   2. GET  /api/reports/{jobId}/status       → poll until COMPLETED or FAILED
- *   3. GET  /api/reports/{jobId}/result       → download the generated DOCX
+ *   0. GET  /api/estimates/models               → lista modelli disponibili
+ *   1. POST /api/estimates/generate             → upload PDF + model, receive jobId
+ *   2. GET  /api/estimates/{jobId}/status       → poll until COMPLETED or FAILED
+ *   3. GET  /api/estimates/{jobId}/result       → download the generated DOCX
  */
 @RestController
 @RequestMapping("/api/estimates")
@@ -56,7 +56,7 @@ public class EstimateController {
                 jobId.toString(),
                 Estimate.JobStatus.PENDING.name(),
                 model,
-                "Generazione preventivo avviata. Usa /api/reports/" + jobId + "/status per monitorare lo stato."
+                "Generazione preventivo avviata. Usa /api/estimates/" + jobId + "/status per monitorare lo stato."
         ));
     }
 
@@ -66,7 +66,7 @@ public class EstimateController {
         Estimate job = estimateGenerationService.getJob(jobId);
 
         String downloadUrl = job.getStatus() == Estimate.JobStatus.COMPLETED
-                ? "/api/reports/" + jobId + "/result"
+                ? "/api/estimates/" + jobId + "/result"
                 : null;
 
         return ResponseEntity.ok(new JobStatusResponse(

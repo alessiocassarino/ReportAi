@@ -851,7 +851,7 @@ public class EstimateReportBuilder {
         if (!sb.isEmpty() && sb.charAt(sb.length() - 1) == ',') {
             sb.deleteCharAt(sb.length() - 1);
         }
-        int braces = 0, brackets = 0;
+        java.util.Deque<Character> stack = new java.util.ArrayDeque<>();
         boolean inString = false, escaped = false;
         for (int i = 0; i < sb.length(); i++) {
             char c = sb.charAt(i);
@@ -859,18 +859,15 @@ public class EstimateReportBuilder {
             if (c == '\\' && inString) { escaped = true; continue; }
             if (c == '"') { inString = !inString; continue; }
             if (!inString) {
-                switch (c) {
-                    case '{' -> braces++;
-                    case '}' -> braces--;
-                    case '[' -> brackets++;
-                    case ']' -> brackets--;
-                }
+                if (c == '{') stack.push('}');
+                else if (c == '[') stack.push(']');
+                else if ((c == '}' || c == ']') && !stack.isEmpty()) stack.pop();
             }
         }
         if (inString) sb.append('"');
-        for (int i = 0; i < Math.max(0, brackets); i++) sb.append(']');
-        for (int i = 0; i < Math.max(0, braces);   i++) sb.append('}');
-        log.warn("JSON preventivo era troncato: riparato aggiungendo {} ']' e {} '}'", brackets, braces);
+        int added = stack.size();
+        while (!stack.isEmpty()) sb.append(stack.pop());
+        log.warn("JSON preventivo era troncato: riparato aggiungendo {} caratteri di chiusura", added);
         return sb.toString();
     }
 }
