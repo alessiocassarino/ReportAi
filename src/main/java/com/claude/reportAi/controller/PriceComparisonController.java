@@ -98,6 +98,13 @@ public class PriceComparisonController {
         ));
     }
 
+    @PostMapping("/{jobId}/cancel")
+    @PreAuthorize("hasAnyRole('ADMIN', 'USER', 'ANALYST')")
+    public ResponseEntity<Void> cancel(@PathVariable UUID jobId) {
+        service.cancelJob(jobId);
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/{jobId}/result")
     @PreAuthorize("hasAnyRole('ADMIN', 'USER', 'ANALYST')")
     public ResponseEntity<byte[]> result(@PathVariable UUID jobId) {

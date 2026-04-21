@@ -75,6 +75,6 @@ public class PriceComparison {
     }
 
     public enum JobStatus {
-        PENDING, PROCESSING, COMPLETED, FAILED
+        PENDING, PROCESSING, COMPLETED, FAILED, CANCELLED
     }
 }

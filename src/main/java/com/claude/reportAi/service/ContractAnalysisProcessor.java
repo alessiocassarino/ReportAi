@@ -1,6 +1,7 @@
 package com.claude.reportAi.service;
 
 import com.claude.reportAi.entities.ContractAnalysis;
+import com.claude.reportAi.exception.JobCancelledException;
 import com.claude.reportAi.repository.ContractAnalysisRepository;
 import com.claude.reportAi.service.ContractSectionExtractor.ContractSection;
 import lombok.RequiredArgsConstructor;
@@ -87,6 +88,7 @@ public class ContractAnalysisProcessor {
             int totalSections = sections.size();
 
             for (int i = 0; i < totalSections; i++) {
+                throwIfCancelled(jobId);
                 ContractSection section = sections.get(i);
                 int progress = 10 + (int) ((i / (double) totalSections) * 70); // 10% → 80%
 
@@ -103,6 +105,7 @@ public class ContractAnalysisProcessor {
             }
 
             // Step 4 – REDUCE: synthesize and generate DOCX
+            throwIfCancelled(jobId);
             updateProgress(jobId, 82, "Aggregazione risultati e generazione report Word");
             byte[] docxContent = generateDocxReport(sectionResults, originalFilename, model);
 
@@ -122,6 +125,8 @@ public class ContractAnalysisProcessor {
             long elapsed = System.currentTimeMillis() - startTime;
             log.info("END analisi contratto | jobId={} | model={} | tempo totale={}s", jobId, model, elapsed / 1000);
 
+        } catch (JobCancelledException e) {
+            log.info("Job annullato dall'utente | jobId={}", jobId);
         } catch (Exception e) {
             log.error("ERRORE analisi contratto | jobId={}", jobId, e);
             ContractAnalysis job = loadJob(jobId);
@@ -361,6 +366,12 @@ public class ContractAnalysisProcessor {
     private String truncate(String s, int maxLen) {
         if (s == null || s.length() <= maxLen) return s;
         return s.substring(0, maxLen - 3) + "...";
+    }
+
+    private void throwIfCancelled(UUID jobId) {
+        if (loadJob(jobId).getStatus() == ContractAnalysis.JobStatus.CANCELLED) {
+            throw new JobCancelledException(jobId);
+        }
     }
 
     private ContractAnalysis loadJob(UUID jobId) {

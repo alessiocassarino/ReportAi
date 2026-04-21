@@ -2,10 +2,16 @@ package com.claude.reportAi.configuration;
 
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.cloud.vertexai.VertexAI;
+import io.micrometer.observation.ObservationRegistry;
+import org.springframework.ai.anthropic.AnthropicChatModel;
+import org.springframework.ai.anthropic.AnthropicChatOptions;
 import org.springframework.ai.anthropic.api.AnthropicApi;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.model.tool.ToolCallingManager;
+import org.springframework.ai.retry.RetryUtils;
 import org.springframework.ai.vertexai.gemini.VertexAiGeminiChatModel;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -13,6 +19,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.core.io.Resource;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.retry.support.RetryTemplate;
 import org.springframework.web.client.RestClient;
 
 import java.io.IOException;
@@ -40,6 +47,37 @@ public class AiToolConfiguration {
                 .apiKey(apiKey)
                 .restClientBuilder(restClientBuilder)
                 .build();
+    }
+
+    /**
+     * Sovrascrive il bean auto-configurato da Spring AI (che usa @ConditionalOnMissingBean).
+     * Il bean auto-configurato imposta DEFAULT_TEMPERATURE=0.8 nelle defaultOptions anche se
+     * non specificata in application.properties — il che causa un errore 400 su claude-opus-4-7
+     * e modelli futuri che deprecano il parametro. Creando il bean qui con temperature=null,
+     * il parametro non viene mai incluso nella richiesta di default; il ModelChatClientFactory
+     * lo aggiunge selettivamente solo per i modelli che lo supportano.
+     */
+    @Bean
+    @Primary
+    AnthropicChatModel anthropicChatModel(
+            AnthropicApi anthropicApi,
+            ObjectProvider<ToolCallingManager> toolCallingManagerProvider,
+            ObjectProvider<RetryTemplate> retryTemplateProvider,
+            ObjectProvider<ObservationRegistry> observationRegistryProvider,
+            @Value("${spring.ai.anthropic.chat.options.max-tokens:8192}") Integer maxTokens) {
+
+        AnthropicChatOptions defaultOptions = AnthropicChatOptions.builder()
+                .model(AnthropicChatModel.DEFAULT_MODEL_NAME)
+                .maxTokens(maxTokens)
+                // temperature omessa intenzionalmente: null → non serializzata → non inviata all'API
+                .build();
+
+        return new AnthropicChatModel(
+                anthropicApi,
+                defaultOptions,
+                toolCallingManagerProvider.getIfAvailable(ToolCallingManager.builder()::build),
+                retryTemplateProvider.getIfAvailable(() -> RetryUtils.DEFAULT_RETRY_TEMPLATE),
+                observationRegistryProvider.getIfAvailable(() -> ObservationRegistry.NOOP));
     }
 
     @Bean

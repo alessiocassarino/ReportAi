@@ -42,6 +42,6 @@ public class VectoreUpload {
     }
 
     public enum JobStatus {
-        PENDING, PROCESSING, COMPLETED, FAILED, ALREADY_EXISTS, NO_TEXT
+        PENDING, PROCESSING, COMPLETED, FAILED, CANCELLED, ALREADY_EXISTS, NO_TEXT
     }
 }

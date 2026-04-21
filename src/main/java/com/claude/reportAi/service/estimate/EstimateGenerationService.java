@@ -54,6 +54,20 @@ public class EstimateGenerationService {
                 .orElseThrow(() -> new NoSuchElementException("Job non trovato: " + jobId));
     }
 
+    public void cancelJob(UUID jobId) {
+        Estimate job = getJob(jobId);
+        if (job.getStatus() == Estimate.JobStatus.COMPLETED
+                || job.getStatus() == Estimate.JobStatus.FAILED
+                || job.getStatus() == Estimate.JobStatus.CANCELLED) {
+            throw new IllegalStateException(
+                    "Impossibile annullare un job già terminato. Stato: " + job.getStatus());
+        }
+        job.setStatus(Estimate.JobStatus.CANCELLED);
+        job.setCurrentStep("Annullato dall'utente");
+        estimateRepository.save(job);
+        log.info("Job annullato | jobId={}", jobId);
+    }
+
     public byte[] getResult(UUID jobId) {
         Estimate job = getJob(jobId);
         if (job.getStatus() != Estimate.JobStatus.COMPLETED) {

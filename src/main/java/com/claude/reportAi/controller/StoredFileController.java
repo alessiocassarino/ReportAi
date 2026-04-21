@@ -97,6 +97,24 @@ public class StoredFileController {
         ));
     }
 
+    @PostMapping("/{jobId}/cancel")
+    @PreAuthorize("hasAnyRole('ADMIN', 'USER', 'ANALYST')")
+    public ResponseEntity<Void> cancel(@PathVariable UUID jobId) {
+        VectoreUpload job = vectorUploadRepository.findById(jobId)
+                .orElseThrow(() -> new NoSuchElementException("Job non trovato: " + jobId));
+        if (job.getStatus() == VectoreUpload.JobStatus.COMPLETED
+                || job.getStatus() == VectoreUpload.JobStatus.FAILED
+                || job.getStatus() == VectoreUpload.JobStatus.CANCELLED) {
+            throw new IllegalStateException(
+                    "Impossibile annullare un job già terminato. Stato: " + job.getStatus());
+        }
+        job.setStatus(VectoreUpload.JobStatus.CANCELLED);
+        job.setErrorMessage("Annullato dall'utente");
+        vectorUploadRepository.save(job);
+        log.info("Job upload annullato | jobId={}", jobId);
+        return ResponseEntity.noContent().build();
+    }
+
     /**
      * Downloads the original file associated with the given upload job.
      * Only available for jobs that completed successfully (COMPLETED, ALREADY_EXISTS, NO_TEXT).

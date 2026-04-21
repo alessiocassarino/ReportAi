@@ -81,6 +81,13 @@ public class EstimateController {
         ));
     }
 
+    @PostMapping("/{jobId}/cancel")
+    @PreAuthorize("hasAnyRole('ADMIN', 'USER', 'ANALYST')")
+    public ResponseEntity<Void> cancel(@PathVariable UUID jobId) {
+        estimateGenerationService.cancelJob(jobId);
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/{jobId}/result")
     @PreAuthorize("hasAnyRole('ADMIN', 'USER', 'ANALYST')")
     public ResponseEntity<byte[]> result(@PathVariable UUID jobId) {

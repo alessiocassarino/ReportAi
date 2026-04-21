@@ -1,6 +1,7 @@
 package com.claude.reportAi.service.pricecomparison;
 
 import com.claude.reportAi.entities.PriceComparison;
+import com.claude.reportAi.exception.JobCancelledException;
 import com.claude.reportAi.repository.PriceComparisonRepository;
 import com.claude.reportAi.service.ModelChatClientFactory;
 import com.claude.reportAi.service.TokenRateLimiter;
@@ -163,6 +164,7 @@ public class PriceComparisonProcessor {
                 }
 
                 // Chiamata LLM per estrazione strutturata
+                throwIfCancelled(jobId);
                 updateProgress(jobId, (progressStart + progressEnd) / 2,
                         "Elaborazione AI offerta " + (i + 1) + "/" + total + " (" + filename + ")");
 
@@ -218,6 +220,7 @@ public class PriceComparisonProcessor {
             }
 
             // ── FASE 2: Confronto comparativo ──
+            throwIfCancelled(jobId);
             updateProgress(jobId, 57,
                     "Elaborazione confronto tra " + total + " fornitori...");
             log.info("Avvio confronto comparativo tra {} fornitori", total);
@@ -279,6 +282,8 @@ public class PriceComparisonProcessor {
             long elapsed = System.currentTimeMillis() - startTime;
             log.info("END confronto prezzi | jobId={} | tempo={}s", jobId, elapsed / 1000);
 
+        } catch (JobCancelledException e) {
+            log.info("Job annullato dall'utente | jobId={}", jobId);
         } catch (Exception e) {
             log.error("ERRORE confronto prezzi | jobId={}", jobId, e);
             try {
@@ -587,6 +592,12 @@ public class PriceComparisonProcessor {
         job.setProgress(progress);
         job.setCurrentStep(truncate(step, 500));
         repository.save(job);
+    }
+
+    private void throwIfCancelled(UUID jobId) {
+        if (loadJob(jobId).getStatus() == PriceComparison.JobStatus.CANCELLED) {
+            throw new JobCancelledException(jobId);
+        }
     }
 
     private PriceComparison loadJob(UUID jobId) {

@@ -53,6 +53,20 @@ public class ContractAnalysisService {
                 .orElseThrow(() -> new IllegalArgumentException("Job non trovato: " + jobId));
     }
 
+    public void cancelJob(UUID jobId) {
+        ContractAnalysis job = getJob(jobId);
+        if (job.getStatus() == ContractAnalysis.JobStatus.COMPLETED
+                || job.getStatus() == ContractAnalysis.JobStatus.FAILED
+                || job.getStatus() == ContractAnalysis.JobStatus.CANCELLED) {
+            throw new IllegalStateException(
+                    "Impossibile annullare un job già terminato. Stato: " + job.getStatus());
+        }
+        job.setStatus(ContractAnalysis.JobStatus.CANCELLED);
+        job.setCurrentStep("Annullato dall'utente");
+        contractAnalysisRepository.save(job);
+        log.info("Job annullato | jobId={}", jobId);
+    }
+
     public byte[] getResult(UUID jobId) {
         ContractAnalysis job = getJob(jobId);
 

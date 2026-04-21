@@ -78,6 +78,13 @@ public class ContractController {
         ));
     }
 
+    @PostMapping("/{jobId}/cancel")
+    @PreAuthorize("hasAnyRole('ADMIN', 'USER', 'ANALYST')")
+    public ResponseEntity<Void> cancel(@PathVariable UUID jobId) {
+        contractAnalysisService.cancelJob(jobId);
+        return ResponseEntity.noContent().build();
+    }
+
     /**
      * Downloads the generated DOCX report for a completed job.
      */

@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.MimeTypeUtils;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * Modelli supportati per l'analisi contratti e generazione preventivi.
@@ -38,6 +39,11 @@ public class ModelChatClientFactory {
             new ModelInfo("gemini-2.5-pro",                 "gemini-2.5-pro",         "gemini", "Stabile GA – veloce e preciso"),
             new ModelInfo("gemini-2.5-flash",            "gemini-2.5-flash",     "gemini", "Stabile GA – versione leggera, più economica"),
             new ModelInfo("gemini-2.5-flash-lite",   "gemini-2.5-flash-lite","gemini", "Preview – generazione più recente, veloce")
+    );
+
+    // Modelli Anthropic che non accettano il parametro `temperature` (deprecato dall'API)
+    private static final Set<String> NO_TEMPERATURE_MODELS = Set.of(
+            "claude-opus-4-7"
     );
 
     public static boolean isAnthropicModel(String model) {
@@ -101,8 +107,12 @@ public class ModelChatClientFactory {
         // Anthropic
         AnthropicChatOptions.Builder opts = AnthropicChatOptions.builder()
                 .model(model)
-                .maxTokens(maxTokens)
-                .temperature(0.1d);
+                .maxTokens(maxTokens);
+
+        //Il modello "claude-opus-4-7" non supporta il parametro `temperature` (deprecato dall'API), quindi lo omettiamo per quel modello specifico.
+        if (!NO_TEMPERATURE_MODELS.contains(model)) {
+            opts.temperature(0.1d);
+        }
 
         if (useCache) {
             opts.cacheOptions(AnthropicCacheOptions.builder()
