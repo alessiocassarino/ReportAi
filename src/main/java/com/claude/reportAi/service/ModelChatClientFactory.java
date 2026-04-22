@@ -11,7 +11,9 @@ import org.springframework.core.io.ByteArrayResource;
 import org.springframework.stereotype.Component;
 import org.springframework.util.MimeTypeUtils;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -35,11 +37,38 @@ public class ModelChatClientFactory {
             new ModelInfo("claude-sonnet-4-6",         "Claude Sonnet 4.6", "anthropic", "Ottimo equilibrio qualità/velocità"),
             new ModelInfo("claude-opus-4-6",           "Claude Opus 4.6",   "anthropic", "Alta qualità Anthropic"),
             new ModelInfo("claude-opus-4-7",           "Claude Opus 4.7",   "anthropic", "Massima qualità Anthropic, più lento"),
-            // Google Gemini via Vertex AI (GA = Generally Available, Preview = anteprima)
-            new ModelInfo("gemini-2.5-pro",                 "gemini-2.5-pro",         "gemini", "Stabile GA – veloce e preciso"),
-            new ModelInfo("gemini-2.5-flash",            "gemini-2.5-flash",     "gemini", "Stabile GA – versione leggera, più economica"),
-            new ModelInfo("gemini-2.5-flash-lite",   "gemini-2.5-flash-lite","gemini", "Preview – generazione più recente, veloce")
+            // Google Gemini via Vertex AI
+            new ModelInfo("gemini-2.5-flash",      "gemini-2.5-flash",      "gemini", "GA – bilanciato, consigliato per preventivi"),
+            new ModelInfo("gemini-2.5-pro",        "gemini-2.5-pro",        "gemini", "GA – massima qualità, lento (thinking attivo)"),
+            new ModelInfo("gemini-2.5-flash-lite", "gemini-2.5-flash-lite", "gemini", "Preview – leggero e veloce")
     );
+
+    /**
+     * Modelli disponibili per servizio specifico.
+     * Se un servizio non è presente, vengono restituiti tutti i modelli.
+     */
+    private static final Map<String, List<String>> SERVICE_MODELS = Map.of(
+            "estimates", List.of("claude-opus-4-7", "claude-haiku-4-5-20251001", "gemini-2.5-pro")
+    );
+
+    /**
+     * Restituisce i modelli filtrati per servizio.
+     * Se il servizio non è configurato o è null, restituisce tutti i modelli.
+     */
+    public static List<ModelInfo> getModelsForService(String service) {
+        if (service == null || service.isBlank() || !SERVICE_MODELS.containsKey(service)) {
+            return SUPPORTED_MODELS;
+        }
+        List<String> allowed = SERVICE_MODELS.get(service);
+        List<ModelInfo> filtered = new ArrayList<>();
+        for (String id : allowed) {
+            SUPPORTED_MODELS.stream()
+                    .filter(m -> m.id().equals(id))
+                    .findFirst()
+                    .ifPresent(filtered::add);
+        }
+        return filtered;
+    }
 
     // Modelli Anthropic che non accettano il parametro `temperature` (deprecato dall'API)
     private static final Set<String> NO_TEMPERATURE_MODELS = Set.of(

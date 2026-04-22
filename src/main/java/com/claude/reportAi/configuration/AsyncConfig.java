@@ -38,8 +38,8 @@ public class AsyncConfig {
     @Bean(name = "reportGenerationExecutor")
     public Executor reportGenerationExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(1);
-        executor.setMaxPoolSize(2);
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(4);
         executor.setQueueCapacity(10);
         executor.setThreadNamePrefix("report-gen-");
         executor.initialize();

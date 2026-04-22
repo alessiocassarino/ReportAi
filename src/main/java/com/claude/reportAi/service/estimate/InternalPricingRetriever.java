@@ -1,6 +1,6 @@
 package com.claude.reportAi.service.estimate;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.claude.reportAi.service.rag.VectorStoreContextFormatter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
@@ -19,11 +19,22 @@ import java.util.Set;
 public class InternalPricingRetriever {
 
     private final VectorStore vectorStore;
-    private final ObjectMapper objectMapper;
+    private final VectorStoreContextFormatter contextFormatter;
 
-    private static final int TOP_K = 5;
+    private static final int TOP_K = 12;
     private static final double SIMILARITY_THRESHOLD = 0.4;
-    private static final int MAX_DOCS = 20;
+    private static final int MAX_DOCS = 400;
+
+    // Fase 2: sweep totale — threshold 0.0 e TOP_K = MAX_DOCS garantiscono
+    // che tutti i chunk del vector store vengano raccolti indipendentemente dalla similarità
+    private static final int TOP_K_SWEEP = MAX_DOCS;
+    private static final double SIMILARITY_THRESHOLD_SWEEP = 0.0;
+
+    private static final List<String> COVERAGE_SWEEP_QUERIES = List.of(
+            "prezzi costi rate rese pipeline impianto oil gas costruzione",
+            "squadra operatori mezzi personale costi mensili spread",
+            "rese produttività saldatura posa cantiere attrezzatura mobilizzo"
+    );
 
     private static final List<String> PIPELINE_QUERIES = List.of(
             "costi spread pipeline saldatura posa",
@@ -44,8 +55,10 @@ public class InternalPricingRetriever {
     public String retrieveContext(ProjectInfoExtractor.ProjectInfo info) {
         List<String> queries = buildQueries(info);
         Set<String> seenIds = new HashSet<>();
+        Set<String> coveredFileIds = new HashSet<>();
         List<Document> collected = new ArrayList<>();
 
+        // Fase 1: ricerca semantica context-aware
         for (String query : queries) {
             if (collected.size() >= MAX_DOCS) break;
             try {
@@ -62,6 +75,8 @@ public class InternalPricingRetriever {
                         String docId = doc.getId();
                         if (docId == null || seenIds.add(docId)) {
                             collected.add(doc);
+                            String fileId = getFileId(doc);
+                            if (fileId != null) coveredFileIds.add(fileId);
                         }
                     }
                 }
@@ -70,18 +85,48 @@ public class InternalPricingRetriever {
             }
         }
 
+        // Fase 2: sweep totale per raccogliere i chunk non catturati dalla ricerca semantica.
+        // Usa threshold=0.0 e TOP_K=MAX_DOCS per pescare tutti i documenti del vector store;
+        // la deduplicazione su seenIds evita duplicati già raccolti in Fase 1.
+        if (collected.size() < MAX_DOCS) {
+            for (String query : COVERAGE_SWEEP_QUERIES) {
+                if (collected.size() >= MAX_DOCS) break;
+                try {
+                    List<Document> sweepResults = vectorStore.similaritySearch(
+                            SearchRequest.builder()
+                                    .query(query)
+                                    .topK(TOP_K_SWEEP)
+                                    .similarityThreshold(SIMILARITY_THRESHOLD_SWEEP)
+                                    .build()
+                    );
+                    for (Document doc : sweepResults) {
+                        if (collected.size() >= MAX_DOCS) break;
+                        String docId = doc.getId();
+                        if (seenIds.add(docId)) {
+                            collected.add(doc);
+                            String fileId = getFileId(doc);
+                            if (fileId != null) coveredFileIds.add(fileId);
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("Errore durante sweep query '{}': {}", query, e.getMessage());
+                }
+            }
+        }
+
         if (collected.isEmpty()) {
             log.warn("Vector store vuoto o nessun dato pertinente trovato");
             return "";
         }
 
-        StringBuilder sb = new StringBuilder();
-        for (Document doc : collected) {
-            String filename = getFilename(doc);
-            sb.append("=== ").append(filename).append(" ===\n");
-            sb.append(doc.getText()).append("\n\n");
-        }
-        return sb.toString();
+        log.info("RAG coverage: {} chunk raccolti da {} file distinti", collected.size(), coveredFileIds.size());
+        return contextFormatter.format(collected);
+    }
+
+    private String getFileId(Document doc) {
+        if (doc.getMetadata() == null) return null;
+        Object fileId = doc.getMetadata().get("fileId");
+        return fileId != null ? fileId.toString() : null;
     }
 
     private List<String> buildQueries(ProjectInfoExtractor.ProjectInfo info) {
@@ -98,12 +143,4 @@ public class InternalPricingRetriever {
         }
     }
 
-    private String getFilename(Document doc) {
-        if (doc.getMetadata() == null) return "documento";
-        Object filename = doc.getMetadata().get("filename");
-        if (filename != null) return filename.toString();
-        Object source = doc.getMetadata().get("source");
-        if (source != null) return source.toString();
-        return "documento";
-    }
 }

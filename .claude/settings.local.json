@@ -20,7 +20,9 @@
       "Bash(grep *)",
       "PowerShell(Get-ChildItem \"C:\\\\Users\\\\alessio.cassarino\\\\Desktop\\\\DocumentiReportAi\\\\temi\\\\extracted_logo\\\\content\" -Recurse | ForEach-Object { Write-Host \"$\\($_.FullName\\) [$\\($_.Length\\) bytes]\" })",
       "PowerShell(Get-ChildItem \"C:\\\\Users\\\\alessio.cassarino\\\\Desktop\\\\report-ai-fe\\\\src\" -Recurse | Where-Object { $_.Extension -in @\\('.css', '.scss'\\) } | Select-Object FullName, Length)",
-      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\alessio.cassarino\\\\Desktop\\\\report-ai-fe\\\\src\" -Recurse | Where-Object { !$_.PSIsContainer } | Select-Object FullName | Sort-Object FullName)"
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\alessio.cassarino\\\\Desktop\\\\report-ai-fe\\\\src\" -Recurse | Where-Object { !$_.PSIsContainer } | Select-Object FullName | Sort-Object FullName)",
+      "Bash(javap -private -c org/springframework/ai/vertexai/gemini/VertexAiGeminiChatOptions.class)",
+      "Bash(javap -private org/springframework/ai/vertexai/gemini/VertexAiGeminiChatOptions.class)"
     ]
   }
 }

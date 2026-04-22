@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.util.Units;
+import org.apache.poi.wp.usermodel.HeaderFooterType;
 import org.apache.poi.xwpf.usermodel.*;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -69,6 +70,7 @@ public class EstimateReportBuilder {
         JsonNode root = objectMapper.readTree(cleanJson(reportJson));
 
         try (XWPFDocument doc = new XWPFDocument()) {
+            setupDocumentHeader(doc);
             addCoverPage(doc, root, info, originalFilename);
             addPageBreak(doc);
             addExecutiveSummary(doc, root, info);
@@ -91,6 +93,79 @@ public class EstimateReportBuilder {
             doc.write(out);
             log.info("DOCX preventivo generato: {} bytes", out.size());
             return out.toByteArray();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Document Header (carta intestata su tutte le pagine tranne la prima)
+    // -------------------------------------------------------------------------
+
+    private void setupDocumentHeader(XWPFDocument doc) {
+        try {
+            // Abilita header distinto per la prima pagina: la cover non mostra l'intestazione
+            CTBody body = doc.getDocument().getBody();
+            CTSectPr sectPr = body.isSetSectPr() ? body.getSectPr() : body.addNewSectPr();
+            if (!sectPr.isSetTitlePg()) sectPr.addNewTitlePg();
+
+            // Header della prima pagina: vuoto (nessuna intestazione sulla cover)
+            doc.createHeader(HeaderFooterType.FIRST);
+
+            // Header default: logo + nome azienda + separatore, visibile da pagina 2 in poi
+            XWPFHeader header = doc.createHeader(HeaderFooterType.DEFAULT);
+            XWPFParagraph para = header.getParagraphs().isEmpty()
+                    ? header.createParagraph()
+                    : header.getParagraphs().get(0);
+            para.setAlignment(ParagraphAlignment.LEFT);
+
+            // Bordo inferiore accent per l'intestazione
+            CTPPr pPr = para.getCTP().isSetPPr() ? para.getCTP().getPPr() : para.getCTP().addNewPPr();
+            CTPBdr bdr = pPr.isSetPBdr() ? pPr.getPBdr() : pPr.addNewPBdr();
+            CTBorder btm = bdr.isSetBottom() ? bdr.getBottom() : bdr.addNewBottom();
+            btm.setVal(STBorder.SINGLE);
+            btm.setSz(BigInteger.valueOf(4));
+            btm.setColor(C_ORANGE);
+            btm.setSpace(BigInteger.valueOf(4));
+
+            // Logo (caricato dal percorso configurato in application.properties)
+            boolean logoInserted = false;
+            if (logoPath != null && !logoPath.isBlank()) {
+                File logoFile = new File(logoPath);
+                if (logoFile.exists() && logoFile.isFile()) {
+                    try {
+                        int picType = logoPath.toLowerCase().endsWith(".png")
+                                ? XWPFDocument.PICTURE_TYPE_PNG
+                                : XWPFDocument.PICTURE_TYPE_JPEG;
+                        XWPFRun logoRun = para.createRun();
+                        try (FileInputStream fis = new FileInputStream(logoFile)) {
+                            // ~2.5cm × 0.9cm a 96 DPI (95px × 34px)
+                            logoRun.addPicture(fis, picType, logoFile.getName(),
+                                    Units.toEMU(95), Units.toEMU(34));
+                        }
+                        logoInserted = true;
+                    } catch (Exception e) {
+                        log.warn("Header logo non caricabile: {}", e.getMessage());
+                    }
+                }
+            }
+
+            // Nome azienda
+            XWPFRun nameRun = para.createRun();
+            if (logoInserted) nameRun.addTab();
+            nameRun.setText(companyName != null ? companyName : "ReportAI");
+            nameRun.setBold(true);
+            nameRun.setFontSize(9);
+            nameRun.setColor(C_NAVY);
+            nameRun.setFontFamily("Calibri");
+
+            // Separatore e dicitura riservatezza
+            XWPFRun confRun = para.createRun();
+            confRun.setText("  |  DOCUMENTO RISERVATO");
+            confRun.setFontSize(8);
+            confRun.setColor(C_GRAY_TEXT);
+            confRun.setFontFamily("Calibri");
+
+        } catch (Exception e) {
+            log.warn("Impossibile impostare l'intestazione del documento: {}", e.getMessage());
         }
     }
 
@@ -273,9 +348,10 @@ public class EstimateReportBuilder {
             int numRows = quadro.size() + 1;
             XWPFTable table = doc.createTable(numRows, 4);
             setTableWidth(table, CONTENT_WIDTH);
+            setTableCellSpacing(table, 40);
 
             int[] colWidths = {4000, 2000, 800, 2560};
-            String[] headers = {"VOCE", "IMPORTO USD", "%", "NOTE"};
+            String[] headers = {"VOCE", "IMPORTO EUR", "%", "NOTE"};
 
             XWPFTableRow headerRow = table.getRow(0);
             for (int i = 0; i < headers.length; i++) {
@@ -299,10 +375,12 @@ public class EstimateReportBuilder {
                 boolean bold;
                 if (vUp.contains("SUBTOTALE")) {
                     bg = C_SUBTOTAL; fgColor = C_WHITE; bold = true;
-                } else if (vUp.contains("TOTALE") && !vUp.contains("SUBTOTALE")) {
+                } else if (vUp.contains("VII -") || (vUp.contains("TOTALE") && !vUp.contains("SUBTOTALE"))) {
                     bg = C_SUBTOTAL; fgColor = C_WHITE; bold = true;
-                } else if (vUp.contains("PREZZO")) {
+                } else if (vUp.contains("VIII -") || vUp.contains("PREZZO")) {
                     bg = C_ORANGE; fgColor = C_WHITE; bold = true;
+                } else if (vUp.startsWith("VI.")) {
+                    bg = C_MED_BG; fgColor = C_DARK_TEXT; bold = true;
                 } else {
                     bg = alt ? C_LIGHT_BG : C_WHITE; fgColor = C_DARK_TEXT; bold = false;
                     alt = !alt;
@@ -315,7 +393,7 @@ public class EstimateReportBuilder {
 
                 setCellWidth(row.getCell(1), colWidths[1]);
                 setCellBackground(row.getCell(1), bg);
-                setCellText(row.getCell(1), "$ " + formatUsd(importo), fgColor, 10, bold);
+                setCellText(row.getCell(1), "€ " + formatUsd(importo), fgColor, 10, bold);
                 row.getCell(1).getParagraphs().getFirst().setAlignment(ParagraphAlignment.RIGHT);
 
                 setCellWidth(row.getCell(2), colWidths[2]);
@@ -332,6 +410,21 @@ public class EstimateReportBuilder {
             addTableBorders(table);
         }
 
+        // Tasso di cambio applicato
+        JsonNode cambioCur = root.path("cambio_eur_usd");
+        if (!cambioCur.isMissingNode() && !cambioCur.isNull() && cambioCur.asDouble(0) > 0) {
+            addSpacer(doc, 1);
+            XWPFParagraph cambioP = doc.createParagraph();
+            setSpacingBefore(cambioP, 80);
+            XWPFRun cambioR = cambioP.createRun();
+            cambioR.setText("ℹ Tasso di cambio applicato: 1 EUR = "
+                    + String.format(Locale.US, "%.4f", cambioCur.asDouble()) + " USD");
+            cambioR.setFontSize(9);
+            cambioR.setItalic(true);
+            cambioR.setColor(C_GRAY_TEXT);
+            cambioR.setFontFamily("Calibri");
+        }
+
         // KPI box
         addSpacer(doc, 1);
         addHeading2(doc, "KPI di Progetto");
@@ -343,29 +436,42 @@ public class EstimateReportBuilder {
             if (!kpi.path("prezzo_al_km").isNull() && !kpi.path("prezzo_al_km").isMissingNode()) kpiRows++;
             if (!kpi.path("prezzo_al_metro").isNull() && !kpi.path("prezzo_al_metro").isMissingNode()) kpiRows++;
             if (!kpi.path("prezzo_inch_metro").isNull() && !kpi.path("prezzo_inch_metro").isMissingNode()) kpiRows++;
+            if (!kpi.path("personale_diretto").isMissingNode()) kpiRows++;
+            if (!kpi.path("personale_indiretto").isMissingNode()) kpiRows++;
             if (!kpi.path("personale_totale").isMissingNode()) kpiRows++;
+            if (!kpi.path("ore_uomo_stimate").isMissingNode()) kpiRows++;
             if (!kpi.path("durata_mesi").isMissingNode()) kpiRows++;
             if (kpiRows == 0) kpiRows = 1;
 
             XWPFTable kpiTable = doc.createTable(kpiRows, 2);
             setTableWidth(kpiTable, CONTENT_WIDTH / 2);
+            setTableCellSpacing(kpiTable, 40);
 
             int kr = 0;
-            kr = addKpiRow(kpiTable, kr, "Prezzo Totale", "$ " + formatUsd(getDoubleNode(kpi, "prezzo_totale_usd", 0)));
+            kr = addKpiRow(kpiTable, kr, "Prezzo Totale", "€ " + formatUsd(getDoubleNode(kpi, "prezzo_totale_usd", 0)));
             if (!kpi.path("prezzo_al_km").isNull() && !kpi.path("prezzo_al_km").isMissingNode()) {
-                kr = addKpiRow(kpiTable, kr, "Prezzo al km", "$ " + formatUsd(getDoubleNode(kpi, "prezzo_al_km", 0)));
+                kr = addKpiRow(kpiTable, kr, "Prezzo al km", "€ " + formatUsd(getDoubleNode(kpi, "prezzo_al_km", 0)));
             }
             if (!kpi.path("prezzo_al_metro").isNull() && !kpi.path("prezzo_al_metro").isMissingNode()) {
-                kr = addKpiRow(kpiTable, kr, "Prezzo al metro", "$ " + formatUsd(getDoubleNode(kpi, "prezzo_al_metro", 0)));
+                kr = addKpiRow(kpiTable, kr, "Prezzo al metro", "€ " + formatUsd(getDoubleNode(kpi, "prezzo_al_metro", 0)));
             }
             if (!kpi.path("prezzo_inch_metro").isNull() && !kpi.path("prezzo_inch_metro").isMissingNode()) {
-                kr = addKpiRow(kpiTable, kr, "Prezzo inch-metro", "$ " + formatUsd(getDoubleNode(kpi, "prezzo_inch_metro", 0)));
+                kr = addKpiRow(kpiTable, kr, "Prezzo inch-metro", "€ " + formatUsd(getDoubleNode(kpi, "prezzo_inch_metro", 0)));
+            }
+            if (!kpi.path("personale_diretto").isMissingNode()) {
+                kr = addKpiRow(kpiTable, kr, "Personale Diretto", String.valueOf(getIntNode(kpi, "personale_diretto", 0)) + " pers.");
+            }
+            if (!kpi.path("personale_indiretto").isMissingNode()) {
+                kr = addKpiRow(kpiTable, kr, "Personale Indiretto", String.valueOf(getIntNode(kpi, "personale_indiretto", 0)) + " pers.");
             }
             if (!kpi.path("personale_totale").isMissingNode()) {
-                kr = addKpiRow(kpiTable, kr, "Personale Totale", String.valueOf(getIntNode(kpi, "personale_totale", 0)));
+                kr = addKpiRow(kpiTable, kr, "Personale Totale", String.valueOf(getIntNode(kpi, "personale_totale", 0)) + " pers.");
+            }
+            if (!kpi.path("ore_uomo_stimate").isMissingNode()) {
+                kr = addKpiRow(kpiTable, kr, "Ore Uomo Stimate", String.format(Locale.US, "%,.0f", getDoubleNode(kpi, "ore_uomo_stimate", 0)) + " h");
             }
             if (!kpi.path("durata_mesi").isMissingNode()) {
-                kr = addKpiRow(kpiTable, kr, "Durata (mesi)", String.valueOf(getIntNode(kpi, "durata_mesi", 0)));
+                kr = addKpiRow(kpiTable, kr, "Durata (mesi)", String.valueOf(getIntNode(kpi, "durata_mesi", 0)) + " mesi");
             }
             addTableBorders(kpiTable);
         }
@@ -402,20 +508,43 @@ public class EstimateReportBuilder {
             double importo   = getDoubleNode(item, "importo_usd", 0.0);
             String descr     = getTextSafe(item, "descrizione", "");
 
-            addHeading2(doc, categoria + " — $ " + formatUsd(importo));
+            addHeading2(doc, categoria + " — € " + formatUsd(importo));
             if (!descr.isBlank()) {
                 addBodyText(doc, descr);
             }
 
-            // Tabella voci principali
+            // Box produttività applicata (campo valorizzato per la voce Costruzione)
+            String prodApplicata = getTextSafe(item, "produttivita_applicata", "");
+            if (!prodApplicata.isBlank()) {
+                XWPFTable prodBox = doc.createTable(1, 1);
+                setTableWidth(prodBox, CONTENT_WIDTH);
+                XWPFTableCell prodCell = prodBox.getRow(0).getCell(0);
+                setCellBackground(prodCell, "EEF2FF");
+                while (prodCell.getParagraphs().size() > 1) {
+                    prodCell.removeParagraph(prodCell.getParagraphs().size() - 1);
+                }
+                XWPFParagraph prodLabelP = prodCell.getParagraphs().getFirst();
+                for (int i = prodLabelP.getRuns().size() - 1; i >= 0; i--) prodLabelP.removeRun(i);
+                XWPFRun prodLabelR = prodLabelP.createRun();
+                prodLabelR.setText("Produttivita Applicata:");
+                prodLabelR.setBold(true); prodLabelR.setFontSize(9); prodLabelR.setFontFamily("Calibri"); prodLabelR.setColor(C_ORANGE);
+                XWPFParagraph prodValP = prodCell.addParagraph();
+                XWPFRun prodValR = prodValP.createRun();
+                prodValR.setText(prodApplicata);
+                prodValR.setFontSize(9); prodValR.setFontFamily("Calibri"); prodValR.setColor(C_DARK_TEXT);
+                addSpacer(doc, 1);
+            }
+
+            // Tabella voci principali (5 colonne: Descrizione | Quantità | C.U. | Fonte | Totale)
             JsonNode voci = item.path("voci_principali");
             if (voci.isArray() && !voci.isEmpty()) {
                 int numRows = voci.size() + 1;
-                XWPFTable vociTable = doc.createTable(numRows, 4);
+                XWPFTable vociTable = doc.createTable(numRows, 5);
                 setTableWidth(vociTable, CONTENT_WIDTH);
+                setTableCellSpacing(vociTable, 40);
 
-                int[] colW = {3500, 1300, 2000, 2560};
-                String[] heads = {"Descrizione", "Quantità", "C.U. (USD)", "Totale USD"};
+                int[] colW = {2900, 1100, 1700, 1100, 2560};
+                String[] heads = {"Descrizione", "Quantita", "C.U. (EUR)", "Fonte", "Totale EUR"};
 
                 XWPFTableRow hr = vociTable.getRow(0);
                 for (int i = 0; i < heads.length; i++) {
@@ -423,21 +552,47 @@ public class EstimateReportBuilder {
                     setCellBackground(hr.getCell(i), C_NAVY);
                     setCellText(hr.getCell(i), heads[i], C_WHITE, 10, true);
                 }
+                hr.getCell(2).getParagraphs().getFirst().setAlignment(ParagraphAlignment.RIGHT);
+                hr.getCell(3).getParagraphs().getFirst().setAlignment(ParagraphAlignment.CENTER);
+                hr.getCell(4).getParagraphs().getFirst().setAlignment(ParagraphAlignment.RIGHT);
 
                 int vi = 1;
                 boolean alt = false;
                 for (JsonNode voce : voci) {
                     String vBg = alt ? C_LIGHT_BG : C_WHITE;
                     XWPFTableRow vr = vociTable.getRow(vi);
+
                     setCellWidth(vr.getCell(0), colW[0]); setCellBackground(vr.getCell(0), vBg);
                     setCellText(vr.getCell(0), getTextSafe(voce, "descrizione", ""), C_DARK_TEXT, 9, false);
+
                     setCellWidth(vr.getCell(1), colW[1]); setCellBackground(vr.getCell(1), vBg);
                     setCellText(vr.getCell(1), getTextSafe(voce, "quantita", ""), C_DARK_TEXT, 9, false);
+
                     setCellWidth(vr.getCell(2), colW[2]); setCellBackground(vr.getCell(2), vBg);
                     setCellText(vr.getCell(2), getTextSafe(voce, "costo_unitario_usd", ""), C_DARK_TEXT, 9, false);
-                    setCellWidth(vr.getCell(3), colW[3]); setCellBackground(vr.getCell(3), vBg);
+                    vr.getCell(2).getParagraphs().getFirst().setAlignment(ParagraphAlignment.RIGHT);
+
+                    // Badge fonte dato: verde=AZIENDALE, arancio=BENCHMARK, grigio=ASSUNZIONE
+                    String fonte = getTextSafe(voce, "fonte_dato", "").toUpperCase().trim();
+                    String fonteBg = switch (fonte) {
+                        case "AZIENDALE" -> "D1FAE5";
+                        case "BENCHMARK" -> "FEF3C7";
+                        default          -> "F3F4F6";
+                    };
+                    String fonteFg = switch (fonte) {
+                        case "AZIENDALE" -> C_GREEN;
+                        case "BENCHMARK" -> C_WARN;
+                        default          -> C_GRAY_TEXT;
+                    };
+                    setCellWidth(vr.getCell(3), colW[3]); setCellBackground(vr.getCell(3), fonteBg);
+                    setCellText(vr.getCell(3), fonte.isBlank() ? "N/D" : fonte, fonteFg, 8, true);
+                    vr.getCell(3).getParagraphs().getFirst().setAlignment(ParagraphAlignment.CENTER);
+
+                    setCellWidth(vr.getCell(4), colW[4]); setCellBackground(vr.getCell(4), vBg);
                     double tot = getDoubleNode(voce, "totale_usd", 0.0);
-                    setCellText(vr.getCell(3), "$ " + formatUsd(tot), C_DARK_TEXT, 9, true);
+                    setCellText(vr.getCell(4), "€ " + formatUsd(tot), C_DARK_TEXT, 9, true);
+                    vr.getCell(4).getParagraphs().getFirst().setAlignment(ParagraphAlignment.RIGHT);
+
                     vi++;
                     alt = !alt;
                 }
@@ -512,12 +667,13 @@ public class EstimateReportBuilder {
                 {"WHT (Ritenuta alla fonte)", getTextSafe(taxes, "wht_percentuale", "N/D")},
                 {"IVA / VAT",                 getTextSafe(taxes, "vat_percentuale", "N/D")},
                 {"Dazi doganali",             getTextSafe(taxes, "customs", "N/D")},
-                {"Impatto stimato",           "$ " + formatUsd(getDoubleNode(taxes, "impatto_stimato_usd", 0))},
+                {"Impatto stimato",           "€ " + formatUsd(getDoubleNode(taxes, "impatto_stimato_usd", 0))},
                 {"Note",                      getTextSafe(taxes, "note", "")}
         };
 
         XWPFTable table = doc.createTable(rows.length, 2);
         setTableWidth(table, CONTENT_WIDTH);
+        setTableCellSpacing(table, 40);
         int half = CONTENT_WIDTH / 2;
 
         for (int i = 0; i < rows.length; i++) {
@@ -550,6 +706,7 @@ public class EstimateReportBuilder {
 
         XWPFTable table = doc.createTable(risks.size() + 1, 4);
         setTableWidth(table, CONTENT_WIDTH);
+        setTableCellSpacing(table, 40);
 
         XWPFTableRow hr = table.getRow(0);
         for (int i = 0; i < headers.length; i++) {
@@ -615,6 +772,7 @@ public class EstimateReportBuilder {
 
         XWPFTable table = doc.createTable(crono.size() + 1, 3);
         setTableWidth(table, CONTENT_WIDTH);
+        setTableCellSpacing(table, 40);
 
         XWPFTableRow hr = table.getRow(0);
         for (int i = 0; i < headers.length; i++) {
@@ -784,6 +942,14 @@ public class EstimateReportBuilder {
         CTTblWidth w = tblPr.isSetTblW() ? tblPr.getTblW() : tblPr.addNewTblW();
         w.setType(STTblWidth.DXA);
         w.setW(BigInteger.valueOf(widthTwips));
+    }
+
+    private void setTableCellSpacing(XWPFTable table, int spacingTwips) {
+        CTTblPr tblPr = table.getCTTbl().getTblPr();
+        if (tblPr == null) tblPr = table.getCTTbl().addNewTblPr();
+        CTTblWidth spacing = tblPr.isSetTblCellSpacing() ? tblPr.getTblCellSpacing() : tblPr.addNewTblCellSpacing();
+        spacing.setType(STTblWidth.DXA);
+        spacing.setW(BigInteger.valueOf(spacingTwips));
     }
 
     private void setCellWidth(XWPFTableCell cell, int widthTwips) {
