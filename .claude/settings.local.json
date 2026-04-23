@@ -23,7 +23,9 @@
       "PowerShell(Get-ChildItem \"C:\\\\Users\\\\alessio.cassarino\\\\Desktop\\\\report-ai-fe\\\\src\" -Recurse | Where-Object { !$_.PSIsContainer } | Select-Object FullName | Sort-Object FullName)",
       "Bash(javap -private -c org/springframework/ai/vertexai/gemini/VertexAiGeminiChatOptions.class)",
       "Bash(javap -private org/springframework/ai/vertexai/gemini/VertexAiGeminiChatOptions.class)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(awk -F/ '{print $NF}')",
+      "Bash(echo \"TOTAL JAVA FILES: $\\(find src/main/java -name \"*.java\")"
     ]
   }
 }
