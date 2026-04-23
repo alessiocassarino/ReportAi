@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.util.Units;
 import org.apache.poi.xwpf.usermodel.*;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.*;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -48,10 +49,14 @@ public class ContractReportBuilder {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    @Autowired
+    private ReportHeaderHelper reportHeaderHelper;
+
     public byte[] build(String reportJson, String originalFilename) throws Exception {
         JsonNode root = objectMapper.readTree(cleanJson(reportJson));
 
         try (XWPFDocument doc = new XWPFDocument()) {
+            reportHeaderHelper.setupDocumentHeader(doc);
             addCoverPage(doc, originalFilename, root);
             addPageBreak(doc);
             addExecutiveSummary(doc, root);

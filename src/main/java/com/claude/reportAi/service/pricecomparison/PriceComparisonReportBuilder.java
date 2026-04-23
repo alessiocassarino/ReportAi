@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.util.Units;
 import org.apache.poi.xwpf.usermodel.*;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.*;
+import com.claude.reportAi.service.ReportHeaderHelper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -58,6 +59,7 @@ public class PriceComparisonReportBuilder {
     private static final int CONTENT_WIDTH = 9360;
 
     private final ObjectMapper objectMapper;
+    private final ReportHeaderHelper reportHeaderHelper;
 
     @Value("${app.report.logo-path:}")
     private String logoPath;
@@ -66,8 +68,9 @@ public class PriceComparisonReportBuilder {
     private String companyName;
 
     @Autowired
-    public PriceComparisonReportBuilder(ObjectMapper objectMapper) {
+    public PriceComparisonReportBuilder(ObjectMapper objectMapper, ReportHeaderHelper reportHeaderHelper) {
         this.objectMapper = objectMapper;
+        this.reportHeaderHelper = reportHeaderHelper;
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -78,6 +81,7 @@ public class PriceComparisonReportBuilder {
         JsonNode root = objectMapper.readTree(cleanJson(reportJson));
 
         try (XWPFDocument doc = new XWPFDocument()) {
+            reportHeaderHelper.setupDocumentHeader(doc);
             addCoverPage(doc, root, filenames);
             addPageBreak(doc);
             addExecutiveSummary(doc, root);

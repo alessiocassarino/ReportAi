@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.util.Units;
-import org.apache.poi.wp.usermodel.HeaderFooterType;
 import org.apache.poi.xwpf.usermodel.*;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +17,7 @@ import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
+import com.claude.reportAi.service.ReportHeaderHelper;
 import com.claude.reportAi.service.estimate.WebSearchService;
 import java.util.List;
 import java.util.Map;
@@ -49,6 +49,7 @@ public class EstimateReportBuilder {
     private static final int CONTENT_WIDTH = 9360;
 
     private final ObjectMapper objectMapper;
+    private final ReportHeaderHelper reportHeaderHelper;
 
     @Value("${app.report.logo-path:}")
     private String logoPath;
@@ -57,8 +58,9 @@ public class EstimateReportBuilder {
     private String companyName;
 
     @Autowired
-    public EstimateReportBuilder(ObjectMapper objectMapper) {
+    public EstimateReportBuilder(ObjectMapper objectMapper, ReportHeaderHelper reportHeaderHelper) {
         this.objectMapper = objectMapper;
+        this.reportHeaderHelper = reportHeaderHelper;
     }
 
     // -------------------------------------------------------------------------
@@ -70,7 +72,7 @@ public class EstimateReportBuilder {
         JsonNode root = objectMapper.readTree(cleanJson(reportJson));
 
         try (XWPFDocument doc = new XWPFDocument()) {
-            setupDocumentHeader(doc);
+            reportHeaderHelper.setupDocumentHeader(doc);
             addCoverPage(doc, root, info, originalFilename);
             addPageBreak(doc);
             addExecutiveSummary(doc, root, info);
@@ -93,79 +95,6 @@ public class EstimateReportBuilder {
             doc.write(out);
             log.info("DOCX preventivo generato: {} bytes", out.size());
             return out.toByteArray();
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Document Header (carta intestata su tutte le pagine tranne la prima)
-    // -------------------------------------------------------------------------
-
-    private void setupDocumentHeader(XWPFDocument doc) {
-        try {
-            // Abilita header distinto per la prima pagina: la cover non mostra l'intestazione
-            CTBody body = doc.getDocument().getBody();
-            CTSectPr sectPr = body.isSetSectPr() ? body.getSectPr() : body.addNewSectPr();
-            if (!sectPr.isSetTitlePg()) sectPr.addNewTitlePg();
-
-            // Header della prima pagina: vuoto (nessuna intestazione sulla cover)
-            doc.createHeader(HeaderFooterType.FIRST);
-
-            // Header default: logo + nome azienda + separatore, visibile da pagina 2 in poi
-            XWPFHeader header = doc.createHeader(HeaderFooterType.DEFAULT);
-            XWPFParagraph para = header.getParagraphs().isEmpty()
-                    ? header.createParagraph()
-                    : header.getParagraphs().get(0);
-            para.setAlignment(ParagraphAlignment.LEFT);
-
-            // Bordo inferiore accent per l'intestazione
-            CTPPr pPr = para.getCTP().isSetPPr() ? para.getCTP().getPPr() : para.getCTP().addNewPPr();
-            CTPBdr bdr = pPr.isSetPBdr() ? pPr.getPBdr() : pPr.addNewPBdr();
-            CTBorder btm = bdr.isSetBottom() ? bdr.getBottom() : bdr.addNewBottom();
-            btm.setVal(STBorder.SINGLE);
-            btm.setSz(BigInteger.valueOf(4));
-            btm.setColor(C_ORANGE);
-            btm.setSpace(BigInteger.valueOf(4));
-
-            // Logo (caricato dal percorso configurato in application.properties)
-            boolean logoInserted = false;
-            if (logoPath != null && !logoPath.isBlank()) {
-                File logoFile = new File(logoPath);
-                if (logoFile.exists() && logoFile.isFile()) {
-                    try {
-                        int picType = logoPath.toLowerCase().endsWith(".png")
-                                ? XWPFDocument.PICTURE_TYPE_PNG
-                                : XWPFDocument.PICTURE_TYPE_JPEG;
-                        XWPFRun logoRun = para.createRun();
-                        try (FileInputStream fis = new FileInputStream(logoFile)) {
-                            // ~2.5cm × 0.9cm a 96 DPI (95px × 34px)
-                            logoRun.addPicture(fis, picType, logoFile.getName(),
-                                    Units.toEMU(95), Units.toEMU(34));
-                        }
-                        logoInserted = true;
-                    } catch (Exception e) {
-                        log.warn("Header logo non caricabile: {}", e.getMessage());
-                    }
-                }
-            }
-
-            // Nome azienda
-            XWPFRun nameRun = para.createRun();
-            if (logoInserted) nameRun.addTab();
-            nameRun.setText(companyName != null ? companyName : "ReportAI");
-            nameRun.setBold(true);
-            nameRun.setFontSize(9);
-            nameRun.setColor(C_NAVY);
-            nameRun.setFontFamily("Calibri");
-
-            // Separatore e dicitura riservatezza
-            XWPFRun confRun = para.createRun();
-            confRun.setText("  |  DOCUMENTO RISERVATO");
-            confRun.setFontSize(8);
-            confRun.setColor(C_GRAY_TEXT);
-            confRun.setFontFamily("Calibri");
-
-        } catch (Exception e) {
-            log.warn("Impossibile impostare l'intestazione del documento: {}", e.getMessage());
         }
     }
 
