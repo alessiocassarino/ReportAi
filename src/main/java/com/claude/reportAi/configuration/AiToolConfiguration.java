@@ -35,7 +35,7 @@ public class AiToolConfiguration {
             @Value("${spring.ai.anthropic.base-url:https://api.anthropic.com}") String baseUrl) {
 
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setReadTimeout(Duration.ofMinutes(30));
+        factory.setReadTimeout(Duration.ofMinutes(60));
         factory.setConnectTimeout(Duration.ofSeconds(30));
 
 

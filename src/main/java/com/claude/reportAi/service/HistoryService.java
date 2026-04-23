@@ -9,11 +9,13 @@ import com.claude.reportAi.repository.ContractAnalysisRepository;
 import com.claude.reportAi.repository.EstimateRepository;
 import com.claude.reportAi.repository.PriceComparisonRepository;
 import com.claude.reportAi.repository.VectorUploadRepository;
+import com.claude.reportAi.dto.DeleteJobsRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -21,6 +23,7 @@ import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -157,13 +160,40 @@ public class HistoryService {
             String q = search.toLowerCase();
             boolean filenameMatch = dto.getOriginalFilename() != null
                     && dto.getOriginalFilename().toLowerCase().contains(q);
-            boolean jobIdMatch = dto.getJobId() != null
-                    && dto.getJobId().toLowerCase().contains(q);
-            if (!filenameMatch && !jobIdMatch) {
+            if (!filenameMatch) {
                 return false;
             }
         }
         return true;
+    }
+
+    // -------------------------------------------------------------------------
+    // Delete
+    // -------------------------------------------------------------------------
+
+    @Transactional
+    public void deleteJob(String jobId, String type) {
+        UUID id = UUID.fromString(jobId);
+        switch (type.toUpperCase()) {
+            case "DOCUMENTS"         -> vectorUploadRepository.deleteById(id);
+            case "CONTRACTS"         -> contractAnalysisRepository.deleteById(id);
+            case "REPORTS"           -> estimateRepository.deleteById(id);
+            case "PRICE_COMPARISONS" -> priceComparisonRepository.deleteById(id);
+            default -> throw new IllegalArgumentException("Tipo non supportato: " + type);
+        }
+    }
+
+    @Transactional
+    public void deleteJobs(List<DeleteJobsRequest.DeleteJobItem> items) {
+        items.forEach(item -> deleteJob(item.getJobId(), item.getType()));
+    }
+
+    @Transactional
+    public void clearAll() {
+        vectorUploadRepository.deleteAll();
+        contractAnalysisRepository.deleteAll();
+        estimateRepository.deleteAll();
+        priceComparisonRepository.deleteAll();
     }
 
     // -------------------------------------------------------------------------

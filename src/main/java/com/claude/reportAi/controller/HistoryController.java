@@ -1,5 +1,6 @@
 package com.claude.reportAi.controller;
 
+import com.claude.reportAi.dto.DeleteJobsRequest;
 import com.claude.reportAi.dto.HistoryDTO;
 import com.claude.reportAi.service.HistoryService;
 import lombok.RequiredArgsConstructor;
@@ -7,10 +8,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 
@@ -38,5 +36,28 @@ public class HistoryController {
                 page, size, type, status, dateFrom, dateTo, search, sortBy, sortDir);
 
         return ResponseEntity.ok(result);
+    }
+
+    @DeleteMapping("/{jobId}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Void> deleteJob(
+            @PathVariable String jobId,
+            @RequestParam String type) {
+
+        HistoryService.deleteJob(jobId, type);
+        return ResponseEntity.noContent().build();
+    }
+
+    @DeleteMapping
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Void> deleteJobs(
+            @RequestBody(required = false) DeleteJobsRequest request) {
+
+        if (request == null || request.getItems() == null || request.getItems().isEmpty()) {
+            HistoryService.clearAll();
+        } else {
+            HistoryService.deleteJobs(request.getItems());
+        }
+        return ResponseEntity.noContent().build();
     }
 }
