@@ -36,6 +36,7 @@ build/
 .env
 .env.*
 !.env.example
+src/main/resources/application.properties
 
 ### Google Cloud Credentials ###
 src/main/resources/config/*.json
