@@ -93,9 +93,9 @@ public class AiToolConfiguration {
      */
     @Bean
     public VertexAI vertexAI(
-            @Value("${spring.ai.vertex.ai.gemini.project-id:nexoniq}") String projectId,
+            @Value("${spring.ai.vertex.ai.gemini.project-id:progetto-ai-494215}") String projectId,
             @Value("${spring.ai.vertex.ai.gemini.location:us-central1}") String location,
-            @Value("${spring.ai.vertex.ai.gemini.credentials.location:classpath:config/nexoniq-bb9e971552b6.json}") Resource credentialsResource) throws IOException {
+            @Value("${spring.ai.vertex.ai.gemini.credentials.location:classpath:config/progetto-ai-494215-1a94e8abc771.json}") Resource credentialsResource) throws IOException {
 
         GoogleCredentials credentials = GoogleCredentials
                 .fromStream(credentialsResource.getInputStream())
