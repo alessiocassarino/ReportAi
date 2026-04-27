@@ -4,6 +4,7 @@ import com.claude.reportAi.entities.PriceComparison;
 import com.claude.reportAi.exception.JobCancelledException;
 import com.claude.reportAi.repository.PriceComparisonRepository;
 import com.claude.reportAi.service.ModelChatClientFactory;
+import com.claude.reportAi.service.PromptTemplateService;
 import com.claude.reportAi.service.TokenRateLimiter;
 import com.claude.reportAi.service.estimate.PdfPageImageExtractor;
 import lombok.RequiredArgsConstructor;
@@ -48,6 +49,7 @@ public class PriceComparisonProcessor {
     private final TokenRateLimiter tokenRateLimiter;
     private final PriceComparisonReportBuilder reportBuilder;
     private final PdfPageImageExtractor pdfPageImageExtractor;
+    private final PromptTemplateService promptTemplateService;
 
     /** Caratteri massimi di testo per file prima del troncamento */
     private static final int MAX_TEXT_PER_FILE = 50_000;
@@ -58,43 +60,7 @@ public class PriceComparisonProcessor {
     /** Numero massimo di immagini quando il testo è scarso (fallback visuale) */
     private static final int MAX_IMAGES_PER_FILE_FALLBACK = 10;
 
-    // ─────────────────────────────────────────────────────────────────
-    // System prompts
-    // ─────────────────────────────────────────────────────────────────
-
-    private static final String SYSTEM_EXTRACTION = """
-            Sei un esperto analista di offerte commerciali nel settore oil & gas onshore.
-            Analizza l'offerta di questo fornitore per la fornitura o noleggio di moduli, unità prefabbricate o attrezzature oil & gas.
-            Estrai TUTTE le informazioni rilevanti: prezzi, specifiche tecniche, termini commerciali, garanzie, lead time.
-            Se sono presenti immagini, analizzale attentamente per trovare: cataloghi prodotti, listini prezzi, tabelle tecniche, disegni schematici, specifiche dimensionali.
-            IMPORTANTE — MULTILINGUAL: il documento può essere in qualsiasi lingua (italiano, francese, inglese, arabo, spagnolo, ecc.).
-            Estrai le informazioni INDIPENDENTEMENTE dalla lingua, mappando i concetti nei campi JSON richiesti.
-            Esempi di corrispondenze linguistiche:
-              "Condition de paiement" / "Payment terms" / "Zahlungsbedingungen" → termini_pagamento
-              "Validité de l'offre" / "Offer validity" / "Gültigkeit" → validita_offerta
-              "Avance de démarrage" / "Advance payment" → percentuale anticipo in termini_pagamento
-              "Délai de livraison" / "Lead time" / "Lieferfrist" → lead_time_settimane
-              "Incoterms" → incoterms (uguale in tutte le lingue)
-              "Lieu de livraison" / "Delivery place" → luogo_consegna
-              "Le montant de notre offre est de" / "The total amount of our offer is" → totale in riepilogo_economico
-            IMPORTANTE — PREZZI SCRITTI IN LETTERE: se il prezzo è espresso per esteso in parole (es. francese: \
-            "soixante seize millions six cent quatre vingt quinze mille cent dix sept francs CFA" = 76.695.117 XOF), \
-            convertilo in valore numerico nel campo "totale" e includi la valuta originale.
-            Includi nel campo "note_prezzo" anche la formulazione originale in lettere per tracciabilità.
-            Valute africane: "francs CFA" / "FCFA" / "XOF" → usa "XOF (FCFA)" come valuta nel JSON.
-            Cerca prezzi scritti in lettere anche nelle immagini delle slide, non solo nel testo.
-            Rispondi ESCLUSIVAMENTE con un oggetto JSON valido. Nessun markdown, nessun testo aggiuntivo prima o dopo.
-            """;
-
-    private static final String SYSTEM_COMPARISON = """
-            Sei un responsabile acquisti senior con 20+ anni di esperienza nel settore oil & gas onshore/offshore.
-            Il tuo cliente deve selezionare il miglior fornitore per la fornitura o noleggio di moduli oil & gas.
-            Devi preparare una valutazione professionale, oggettiva e dettagliata per supportare la decisione finale.
-            Valuta: prezzo, qualità tecnica, lead time, termini commerciali, affidabilità del fornitore, rischi.
-            Assegna punteggi ponderati (0-100) per ogni criterio. Sii rigoroso e imparziale.
-            La raccomandazione deve essere chiara, motivata e orientata all'interesse del cliente.
-            Rispondi ESCLUSIVAMENTE con un oggetto JSON valido. Nessun markdown. Lingua: italiano.
-            """;
+    // System prompts are loaded from DB via PromptTemplateService at job start
 
     // ─────────────────────────────────────────────────────────────────
     // Punto di ingresso asincrono
@@ -106,6 +72,12 @@ public class PriceComparisonProcessor {
         long startTime = System.currentTimeMillis();
 
         try {
+            String sector = loadJob(jobId).getSector();
+            final String systemExtraction = promptTemplateService.resolve("price-comparison-extraction", sector);
+            final String systemComparison = promptTemplateService.resolve("price-comparison-synthesis", sector);
+            final String extractionUserTemplate = promptTemplateService.resolve("price-comparison-extraction-user", sector);
+            final String synthesisUserTemplate = promptTemplateService.resolve("price-comparison-synthesis-user", sector);
+
             updateJob(jobId, PriceComparison.JobStatus.PROCESSING, 2, "Avvio elaborazione...");
 
             int total = fileContents.size();
@@ -168,7 +140,7 @@ public class PriceComparisonProcessor {
                 updateProgress(jobId, (progressStart + progressEnd) / 2,
                         "Elaborazione AI offerta " + (i + 1) + "/" + total + " (" + filename + ")");
 
-                String extractionPrompt = buildExtractionPrompt(filename, truncatedText, !images.isEmpty());
+                String extractionPrompt = buildExtractionPrompt(filename, truncatedText, !images.isEmpty(), extractionUserTemplate);
                 log.info("Prompt estrazione '{}': {} caratteri (~{} token) | {} immagini",
                         filename, extractionPrompt.length(), estimateTokens(extractionPrompt, images), images.size());
                 log.debug("Prompt estrazione '{}' completo:\n{}", filename, extractionPrompt);
@@ -179,7 +151,7 @@ public class PriceComparisonProcessor {
                 }
 
                 ChatResponse extractionResp = modelFactory.callWithImages(
-                        model, SYSTEM_EXTRACTION, extractionPrompt, 8000, false, images);
+                        model, systemExtraction, extractionPrompt, 8000, false, images);
 
                 int actualTokens = extractActualTokens(extractionResp, estimatedTokens);
                 if (ModelChatClientFactory.isAnthropicModel(model)) {
@@ -225,7 +197,7 @@ public class PriceComparisonProcessor {
                     "Elaborazione confronto tra " + total + " fornitori...");
             log.info("Avvio confronto comparativo tra {} fornitori", total);
 
-            String comparisonPrompt = buildComparisonPrompt(supplierJsons, filenames);
+            String comparisonPrompt = buildComparisonPrompt(supplierJsons, filenames, synthesisUserTemplate);
             int compTokens = comparisonPrompt.length() / 3;
 
             log.info("Prompt confronto comparativo: {} caratteri (~{} token) | {} fornitori | modello={}",
@@ -240,7 +212,7 @@ public class PriceComparisonProcessor {
                     "Generazione valutazione comparativa con " + model + "...");
 
             ChatResponse compResponse = modelFactory.call(
-                    model, SYSTEM_COMPARISON, comparisonPrompt, 16000, false);
+                    model, systemComparison, comparisonPrompt, 16000, false);
 
             int actualCompTokens = extractActualTokens(compResponse, compTokens);
             if (ModelChatClientFactory.isAnthropicModel(model)) {
@@ -330,7 +302,7 @@ public class PriceComparisonProcessor {
     // Prompt builders
     // ─────────────────────────────────────────────────────────────────
 
-    private String buildExtractionPrompt(String filename, String text, boolean hasImages) {
+    private String buildExtractionPrompt(String filename, String text, boolean hasImages, String userTemplate) {
         StringBuilder sb = new StringBuilder();
         sb.append("File documento: ").append(filename).append("\n\n");
 
@@ -356,64 +328,11 @@ public class PriceComparisonProcessor {
             sb.append("[Il documento non contiene testo estraibile. Analizza le immagini allegate.]\n\n");
         }
 
-        sb.append("""
-                Estrai TUTTE le informazioni rilevanti dell'offerta in questo formato JSON:
-                {
-                  "nome_fornitore": "...",
-                  "riferimento_offerta": "...",
-                  "data_offerta": "...",
-                  "valuta_principale": "USD|EUR|...",
-                  "moduli_offerti": [
-                    {
-                      "tipo": "...",
-                      "codice": "...",
-                      "descrizione": "...",
-                      "quantita": 0,
-                      "prezzo_unitario": "...",
-                      "prezzo_totale": "...",
-                      "dimensioni": "...",
-                      "peso_kg": "...",
-                      "specifiche_chiave": ["...", "..."],
-                      "incluso": ["...", "..."],
-                      "escluso": ["...", "..."],
-                      "lead_time_settimane": "...",
-                      "garanzia": "..."
-                    }
-                  ],
-                  "riepilogo_economico": {
-                    "subtotale": "...",
-                    "sconti": "...",
-                    "trasporto_installazione": "...",
-                    "totale": "...",
-                    "valuta": "...",
-                    "note_prezzo": "..."
-                  },
-                  "termini_commerciali": {
-                    "termini_pagamento": "...",
-                    "condizioni_consegna": "...",
-                    "validita_offerta": "...",
-                    "incoterms": "...",
-                    "penali_ritardo": "...",
-                    "luogo_consegna": "..."
-                  },
-                  "specifiche_tecniche_generali": {
-                    "standard_riferimento": ["...", "..."],
-                    "certificazioni": ["...", "..."],
-                    "materiali_principali": ["...", "..."],
-                    "classe_pressione": "...",
-                    "temperatura_operativa": "...",
-                    "classificazione_area": "..."
-                  },
-                  "referenze_oil_gas": ["...", "..."],
-                  "punti_distintivi": ["...", "..."],
-                  "limitazioni_esclusioni": ["...", "..."],
-                  "note_importanti": "..."
-                }
-                """);
+        sb.append(userTemplate);
         return sb.toString();
     }
 
-    private String buildComparisonPrompt(List<String> supplierJsons, List<String> filenames) {
+    private String buildComparisonPrompt(List<String> supplierJsons, List<String> filenames, String userTemplate) {
         StringBuilder sb = new StringBuilder();
         sb.append("[DATI STRUTTURATI ESTRATTI DALLE OFFERTE]\n\n");
 
@@ -438,106 +357,7 @@ public class PriceComparisonProcessor {
         sb.append("Calcola i punteggi ponderati e il totale per ciascun fornitore unico.\n");
         sb.append("La raccomandazione finale deve essere chiara e motivata con dati concreti.\n\n");
 
-        sb.append("[STEP 3 — CAMPO 'note' OBBLIGATORIO PER OGNI CELLA]\n");
-        sb.append("Il campo 'note' in tabella_comparativa DEVE contenere evidenze specifiche estratte dai documenti:\n");
-        sb.append("• Prezzo / Lead Time: fonte del dato (pagina/sezione), valuta originale, cambio applicato.\n");
-        sb.append("• Qualità Tecnica: standard dichiarati (API, ASME, ISO...), certificazioni, materiali, classe pressione.\n");
-        sb.append("• Termini Commerciali: termini pagamento esatti, Incoterms, validità offerta, penali, luogo consegna.\n");
-        sb.append("• Referenze: clienti oil&gas nominati, anni di attività, referenze documentate, certificazioni aziendali.\n");
-        sb.append("Un campo 'note' vuoto o con solo il numero del punteggio NON è accettabile.\n\n");
-
-        sb.append("""
-                Restituisci ESCLUSIVAMENTE questo JSON (senza markdown):
-                {
-                  "titolo_progetto": "Valutazione Fornitori — Confronto Offerte Moduli Oil & Gas",
-                  "data_valutazione": "GG/MM/AAAA",
-                  "numero_fornitori": 0,
-                  "executive_summary": "3-5 frasi concise per il top management con la raccomandazione chiave e i principali driver della scelta",
-                  "tabella_comparativa": [
-                    {
-                      "criterio": "Prezzo Totale",
-                      "peso_percentuale": 30,
-                      "unita": "USD",
-                      "valori_fornitori": [{"fornitore": "...", "valore": "250.150 USD", "punteggio": 0, "note": "Fonte: pag. X sezione riepilogo economico; valuta originale EUR convertita a 1.08; include trasporto; escluso montaggio"}]
-                    },
-                    {
-                      "criterio": "Lead Time",
-                      "peso_percentuale": 20,
-                      "unita": "settimane",
-                      "valori_fornitori": [{"fornitore": "...", "valore": "7 settimane", "punteggio": 0, "note": "Fonte: pag. X clausola consegna; breakdown: 4 sett. produzione + 3 sett. spedizione; data confermata in lettera allegata"}]
-                    },
-                    {
-                      "criterio": "Qualità Tecnica",
-                      "peso_percentuale": 25,
-                      "unita": "punteggio/100",
-                      "valori_fornitori": [{"fornitore": "...", "valore": "Sintetica descrizione qualità (es. Conf. API 6D+ASME, ISO 9001, Duplex 2205)", "punteggio": 0, "note": "Evidenze dal doc: standard dichiarati (es. API 6D, ASME B16.5), certificazioni (es. ISO 9001/14001, ATEX), materiali specificati, classe pressione, conformità a normative di settore, esperienze O&G documentate"}]
-                    },
-                    {
-                      "criterio": "Termini Commerciali",
-                      "peso_percentuale": 15,
-                      "unita": "punteggio/100",
-                      "valori_fornitori": [{"fornitore": "...", "valore": "Sintetica descrizione termini (es. 30/70 DAP, validità 60gg)", "punteggio": 0, "note": "Evidenze dal doc: termini pagamento esatti (es. 30% anticipo + 70% consegna), Incoterms dichiarati, validità offerta in giorni, penali ritardo %, garanzia prodotto, luogo consegna, condizioni forza maggiore"}]
-                    },
-                    {
-                      "criterio": "Referenze e Affidabilità",
-                      "peso_percentuale": 10,
-                      "unita": "punteggio/100",
-                      "valori_fornitori": [{"fornitore": "...", "valore": "Sintetica descrizione affidabilità (es. 3 referenze O&G, 20 anni settore)", "punteggio": 0, "note": "Evidenze dal doc: clienti O&G nominati (es. Eni, Total, Shell), anni di attività dichiarati, numero referenze documentate, certificazioni aziendali, forniture simili completate, solidità finanziaria se menzionata"}]
-                    }
-                  ],
-                  "analisi_fornitori": [
-                    {
-                      "nome": "...",
-                      "rank": 1,
-                      "score_totale": 0,
-                      "punteggio_economico": 0,
-                      "punteggio_tecnico": 0,
-                      "punteggio_commerciale": 0,
-                      "prezzo_totale_offerto": "...",
-                      "lead_time": "...",
-                      "conformita_requisiti": "CONFORME|PARZIALMENTE_CONFORME|NON_CONFORME",
-                      "punti_di_forza": ["...", "..."],
-                      "punti_di_debolezza": ["...", "..."],
-                      "rischi_principali": ["...", "..."],
-                      "opportunita_negoziazione": ["...", "..."],
-                      "note_tecniche": "..."
-                    }
-                  ],
-                  "matrice_valutazione": [
-                    {
-                      "fornitore": "...",
-                      "criteri": [
-                        {"nome": "Prezzo", "peso": 30, "punteggio": 0, "ponderato": 0.0},
-                        {"nome": "Lead Time", "peso": 20, "punteggio": 0, "ponderato": 0.0},
-                        {"nome": "Qualità Tecnica", "peso": 25, "punteggio": 0, "ponderato": 0.0},
-                        {"nome": "Termini Commerciali", "peso": 15, "punteggio": 0, "ponderato": 0.0},
-                        {"nome": "Referenze", "peso": 10, "punteggio": 0, "ponderato": 0.0}
-                      ],
-                      "totale_ponderato": 0.0,
-                      "rank": 1
-                    }
-                  ],
-                  "analisi_rischi": [
-                    {
-                      "fornitore": "...",
-                      "rischio": "...",
-                      "impatto": "ALTO|MEDIO|BASSO",
-                      "probabilita": "ALTA|MEDIA|BASSA",
-                      "mitigazione": "..."
-                    }
-                  ],
-                  "raccomandazione": {
-                    "fornitore_consigliato": "...",
-                    "motivazione": "...",
-                    "saving_stimato_vs_media": "...",
-                    "condizioni_per_accettazione": ["...", "..."],
-                    "punti_da_negoziare": ["...", "..."],
-                    "fornitore_alternativo": "...",
-                    "motivazione_alternativo": "..."
-                  },
-                  "note_finali": "..."
-                }
-                """);
+        sb.append(userTemplate);
         return sb.toString();
     }
 

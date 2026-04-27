@@ -20,6 +20,10 @@ public class EstimateGenerationService {
     private final EstimateGenerationProcessor processor;
 
     public UUID startGeneration(byte[] pdfBytes, String originalFilename, String model, String customOutputFileName) {
+        return startGeneration(pdfBytes, originalFilename, model, customOutputFileName, "OIL_GAS");
+    }
+
+    public UUID startGeneration(byte[] pdfBytes, String originalFilename, String model, String customOutputFileName, String sector) {
         if (pdfBytes == null || pdfBytes.length == 0) {
             throw new IllegalArgumentException("Il file PDF non può essere vuoto.");
         }
@@ -33,6 +37,7 @@ public class EstimateGenerationService {
         job.setOriginalFilename(originalFilename);
         job.setProgress(0);
         job.setCurrentStep("In attesa di elaborazione");
+        job.setSector(sector != null ? sector : "OIL_GAS");
 
         String sanitizedOutputFileName = FileNameSanitizer.sanitize(customOutputFileName);
         if (sanitizedOutputFileName != null) {

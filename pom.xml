@@ -150,6 +150,13 @@
 			<optional>true</optional>
 		</dependency>
 
+		<!-- .env file loader — makes KEY=VALUE in .env available as Spring properties -->
+		<dependency>
+			<groupId>me.paulschwarz</groupId>
+			<artifactId>spring-dotenv</artifactId>
+			<version>4.0.0</version>
+		</dependency>
+
 		<!-- Test -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>

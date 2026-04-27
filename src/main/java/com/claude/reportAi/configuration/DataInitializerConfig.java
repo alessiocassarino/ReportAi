@@ -79,7 +79,7 @@ public class DataInitializerConfig {
         };
 
         for (int i = 0; i < authorityNames.length; i++) {
-            if (!authorityRepository.findByName(authorityNames[i]).isPresent()) {
+            if (authorityRepository.findByName(authorityNames[i]).isEmpty()) {
                 Authority authority = new Authority(authorityNames[i], descriptions[i]);
                 authorityRepository.save(authority);
                 log.info("Created authority: {}", authorityNames[i]);

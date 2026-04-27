@@ -4,6 +4,7 @@ import com.claude.reportAi.entities.ContractAnalysis;
 import com.claude.reportAi.exception.JobCancelledException;
 import com.claude.reportAi.repository.ContractAnalysisRepository;
 import com.claude.reportAi.service.ContractSectionExtractor.ContractSection;
+import com.claude.reportAi.service.PromptTemplateService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.model.ChatResponse;
@@ -36,28 +37,7 @@ public class ContractAnalysisProcessor {
     private final TokenRateLimiter rateLimiter;
     private final ModelChatClientFactory modelFactory;
     private final ContractReportBuilder reportBuilder;
-
-    // -----------------------------------------------------------------------
-    // Prompts
-    // -----------------------------------------------------------------------
-
-    private static final String SECTION_SYSTEM_PROMPT = """
-            Sei un contract manager senior con oltre 30 anni di esperienza internazionale in Oil & Gas.
-            Il tuo compito è analizzare sezioni di contratti commerciali e identificare rischi per il Contractor.
-
-            Regole obbligatorie:
-            - Ragiona SEMPRE nell'interesse del Contractor, non essere neutrale.
-            - Rispondi ESCLUSIVAMENTE con un oggetto JSON valido, senza markdown, senza testo prima o dopo.
-            - Se la sezione non contiene clausole rilevanti, restituisci un JSON con "rischi": [].
-            - Sii diretto, concreto, professionale.
-            """;
-
-    private static final String SYNTHESIS_SYSTEM_PROMPT = """
-            Sei un contract manager senior con oltre 30 anni di esperienza internazionale in Oil & Gas.
-            Sintetizzi analisi contrattuali in un unico JSON strutturato, in italiano, per la generazione di report executive.
-            Rispondi ESCLUSIVAMENTE con un oggetto JSON valido, senza markdown, senza testo prima o dopo.
-            Usa un linguaggio diretto, autorevole e non neutrale: stai difendendo gli interessi del Contractor.
-            """;
+    private final PromptTemplateService promptTemplateService;
 
     // -----------------------------------------------------------------------
     // Entry point (called by ContractAnalysisService)
@@ -69,6 +49,12 @@ public class ContractAnalysisProcessor {
         long startTime = System.currentTimeMillis();
 
         try {
+            String sector = loadJob(jobId).getSector();
+            final String sectionSystemPrompt = promptTemplateService.resolve("contract-risk-section-analysis", sector);
+            final String synthesisSystemPrompt = promptTemplateService.resolve("contract-risk-synthesis", sector);
+            final String sectionUserTemplate = promptTemplateService.resolve("contract-risk-section-user", sector);
+            final String synthesisUserTemplate = promptTemplateService.resolve("contract-risk-synthesis-user", sector);
+
             // Step 1 – Extract text
             updateJob(jobId, ContractAnalysis.JobStatus.PROCESSING, 5, "Estrazione testo dal PDF");
             String fullText = extractTextFromPdf(pdfBytes);
@@ -96,7 +82,7 @@ public class ContractAnalysisProcessor {
                 log.info("Analisi sezione {}/{}: '{}'", i + 1, totalSections, section.title());
 
                 try {
-                    String result = analyzeSection(section, model);
+                    String result = analyzeSection(section, model, sectionSystemPrompt, sectionUserTemplate);
                     sectionResults.add(result);
                 } catch (Exception e) {
                     log.warn("Sezione '{}' non analizzata: {}", section.title(), e.getMessage());
@@ -107,7 +93,7 @@ public class ContractAnalysisProcessor {
             // Step 4 – REDUCE: synthesize and generate DOCX
             throwIfCancelled(jobId);
             updateProgress(jobId, 82, "Aggregazione risultati e generazione report Word");
-            byte[] docxContent = generateDocxReport(sectionResults, originalFilename, model);
+            byte[] docxContent = generateDocxReport(sectionResults, originalFilename, model, synthesisSystemPrompt, synthesisUserTemplate);
 
             // Step 5 – Save result
             ContractAnalysis job = loadJob(jobId);
@@ -154,9 +140,9 @@ public class ContractAnalysisProcessor {
     // MAP: single section analysis
     // -----------------------------------------------------------------------
 
-    private String analyzeSection(ContractSection section, String model) throws InterruptedException {
-        String userPrompt = buildSectionUserPrompt(section);
-        int estimatedTokens = estimateTokens(SECTION_SYSTEM_PROMPT + userPrompt) + 600;
+    private String analyzeSection(ContractSection section, String model, String sectionSystemPrompt, String sectionUserTemplate) throws InterruptedException {
+        String userPrompt = buildSectionUserPrompt(section, sectionUserTemplate);
+        int estimatedTokens = estimateTokens(sectionSystemPrompt + userPrompt) + 600;
 
         log.debug("Prompt sezione '{}' ({} chars):\n{}", section.title(), userPrompt.length(), userPrompt);
 
@@ -165,7 +151,7 @@ public class ContractAnalysisProcessor {
             rateLimiter.waitIfNeeded(estimatedTokens);
         }
 
-        ChatResponse response = modelFactory.call(model, SECTION_SYSTEM_PROMPT, userPrompt, 1500, true);
+        ChatResponse response = modelFactory.call(model, sectionSystemPrompt, userPrompt, 1500, true);
 
         int actualTokens = extractActualTokens(response, estimatedTokens);
         if (ModelChatClientFactory.isAnthropicModel(model)) {
@@ -178,31 +164,10 @@ public class ContractAnalysisProcessor {
         return result;
     }
 
-    private String buildSectionUserPrompt(ContractSection section) {
-        return """
-                Analizza la seguente sezione del contratto dal punto di vista del Contractor.
-
-                Sezione: %s
-
-                ---
-                %s
-                ---
-
-                Rispondi con questo JSON (nessun testo aggiuntivo):
-                {
-                  "sezione": "<titolo della sezione>",
-                  "rischi": [
-                    {
-                      "clausola": "<riferimento clausola, es. 5.3>",
-                      "descrizione": "<descrizione del rischio per il Contractor>",
-                      "livello": "ALTO|MEDIO|BASSO",
-                      "raccomandazione": "<proposta di modifica o tutela>"
-                    }
-                  ],
-                  "clausole_mancanti": ["<clausola assente ma necessaria>"],
-                  "sommario": "<sintesi in 1-2 frasi>"
-                }
-                """.formatted(section.title(), section.content());
+    private String buildSectionUserPrompt(ContractSection section, String template) {
+        return template
+                .replace("{SECTION_TITLE}", section.title())
+                .replace("{SECTION_CONTENT}", section.content());
     }
 
     private String buildFallbackSectionResult(String title, String error) {
@@ -215,22 +180,22 @@ public class ContractAnalysisProcessor {
     // REDUCE: final DOCX report
     // -----------------------------------------------------------------------
 
-    private byte[] generateDocxReport(List<String> sectionResults, String originalFilename, String model) throws Exception {
+    private byte[] generateDocxReport(List<String> sectionResults, String originalFilename, String model, String synthesisSystemPrompt, String synthesisUserTemplate) throws Exception {
         String aggregatedContext = buildSynthesisContext(sectionResults);
         log.info("Contesto sintesi: {} caratteri (~{} token stimati)", aggregatedContext.length(), aggregatedContext.length() / 3);
-        String synthesisPrompt = buildSynthesisPrompt(aggregatedContext, originalFilename);
+        String synthesisPrompt = buildSynthesisPrompt(aggregatedContext, originalFilename, synthesisUserTemplate);
 
         log.info("Prompt sintesi finale: {} caratteri (~{} token stimati) | modello={}",
                 synthesisPrompt.length(), synthesisPrompt.length() / 3, model);
-        log.debug("System prompt di sintesi:\n{}", SYNTHESIS_SYSTEM_PROMPT);
+        log.debug("System prompt di sintesi:\n{}", synthesisSystemPrompt);
         log.debug("User prompt di sintesi completo:\n{}", synthesisPrompt);
 
-        int estimatedTokens = estimateTokens(SYNTHESIS_SYSTEM_PROMPT + synthesisPrompt) + 4096;
+        int estimatedTokens = estimateTokens(synthesisSystemPrompt + synthesisPrompt) + 4096;
         if (ModelChatClientFactory.isAnthropicModel(model)) {
             rateLimiter.waitIfNeeded(estimatedTokens);
         }
 
-        ChatResponse response = modelFactory.call(model, SYNTHESIS_SYSTEM_PROMPT, synthesisPrompt, 32000, false);
+        ChatResponse response = modelFactory.call(model, synthesisSystemPrompt, synthesisPrompt, 32000, false);
 
         int actualTokens = extractActualTokens(response, estimatedTokens);
         if (ModelChatClientFactory.isAnthropicModel(model)) {
@@ -273,47 +238,10 @@ public class ContractAnalysisProcessor {
         return json.replaceAll("\\s{2,}", " ").strip();
     }
 
-    private String buildSynthesisPrompt(String context, String originalFilename) {
-        return """
-                Hai analizzato sezione per sezione il contratto "%s".
-                Di seguito trovi i risultati JSON di ogni sezione analizzata.
-
-                [RISULTATI ANALISI PER SEZIONE]
-                %s
-
-                Restituisci un unico oggetto JSON con questa struttura esatta (nessun testo prima o dopo):
-                {
-                  "valutazione_complessiva": "SFAVOREVOLE|EQUILIBRATO|FAVOREVOLE",
-                  "raccomandazione_finale": "FIRMARE|NEGOZIARE|RIFIUTARE",
-                  "executive_summary": "<sintesi in 3-5 frasi per il board>",
-                  "rischi_critici": [
-                    {"sezione": "", "clausola": "", "descrizione": "", "livello": "ALTO|MEDIO|BASSO"}
-                  ],
-                  "matrice_rischi": [
-                    {"sezione": "", "clausola": "", "rischio": "", "livello": "ALTO|MEDIO|BASSO", "azione": ""}
-                  ],
-                  "analisi_sezioni": [
-                    {
-                      "titolo": "",
-                      "sommario": "",
-                      "rischi": [
-                        {"clausola": "", "descrizione": "", "livello": "ALTO|MEDIO|BASSO", "raccomandazione": ""}
-                      ],
-                      "clausole_mancanti": [""]
-                    }
-                  ],
-                  "top5_clausole": [
-                    {"riferimento": "", "testo_attuale": "", "testo_proposto": ""}
-                  ],
-                  "clausole_mancanti_globali": [""]
-                }
-
-                Regole:
-                - matrice_rischi ordinata per livello decrescente (ALTO → MEDIO → BASSO)
-                - rischi_critici: massimo 5 rischi, solo i più gravi
-                - top5_clausole: le 5 clausole più critiche da rinegoziare con testo alternativo proposto
-                - Lingua: italiano
-                """.formatted(originalFilename, context);
+    private String buildSynthesisPrompt(String context, String originalFilename, String template) {
+        return template
+                .replace("{ORIGINAL_FILENAME}", originalFilename)
+                .replace("{SECTIONS_ANALYSIS}", context);
     }
 
     // -----------------------------------------------------------------------

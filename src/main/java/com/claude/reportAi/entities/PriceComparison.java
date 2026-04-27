@@ -46,6 +46,9 @@ public class PriceComparison {
     @Column(nullable = false)
     private int numFiles = 0;
 
+    @Column(nullable = false, length = 50)
+    private String sector = "OIL_GAS";
+
     @Column(nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 

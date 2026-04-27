@@ -25,8 +25,6 @@ public class InternalPricingRetriever {
     private static final double SIMILARITY_THRESHOLD = 0.4;
     private static final int MAX_DOCS = 400;
 
-    // Fase 2: sweep totale — threshold 0.0 e TOP_K = MAX_DOCS garantiscono
-    // che tutti i chunk del vector store vengano raccolti indipendentemente dalla similarità
     private static final int TOP_K_SWEEP = MAX_DOCS;
     private static final double SIMILARITY_THRESHOLD_SWEEP = 0.0;
 
@@ -52,23 +50,58 @@ public class InternalPricingRetriever {
             "carburante consumabili impianti"
     );
 
-    public String retrieveContext(ProjectInfoExtractor.ProjectInfo info) {
-        List<String> queries = buildQueries(info);
+    // ── RENEWABLE_ENERGY query sets ────────────────────────────────────────
+
+    private static final List<String> RENEWABLE_COVERAGE_SWEEP_QUERIES = List.of(
+            "prezzi costi fotovoltaico eolico BESS rinnovabili costruzione",
+            "moduli inverter tracker BOS balance of system costi",
+            "opere civili connessione rete cabina stazione AT costi"
+    );
+
+    private static final List<String> SOLAR_QUERIES = List.of(
+            "costi moduli fotovoltaici EUR MWp installazione",
+            "prezzi inverter string central inverter fotovoltaico",
+            "strutture tracker sistemi di montaggio fotovoltaico costi",
+            "opere civili fondazioni pali fotovoltaico",
+            "cavi BOS balance of system fotovoltaico costi"
+    );
+
+    private static final List<String> WIND_QUERIES = List.of(
+            "costi turbine eoliche EUR MW installazione",
+            "fondazioni torre eolica opere civili costi",
+            "cavidotto interrato eolico connessione rete costi",
+            "mobilizzazione cantiere eolico costi personale",
+            "commissioning test collaudo eolico costi"
+    );
+
+    private static final List<String> BESS_QUERIES = List.of(
+            "costi sistemi accumulo BESS batterie EUR MWh",
+            "inverter PCS power conversion system BESS costi",
+            "BMS battery management system EMS energy management",
+            "opere civili fondazioni container BESS costi",
+            "connessione rete stazione AT BESS costi"
+    );
+
+    public String retrieveContext(ProjectInfoExtractor.ProjectInfo info, String sector) {
+        List<String> queries = buildQueries(info, sector);
+        List<String> sweepQueries = buildSweepQueries(sector);
+        String filterExpr = buildFilterExpression(sector);
+
         Set<String> seenIds = new HashSet<>();
         Set<String> coveredFileIds = new HashSet<>();
         List<Document> collected = new ArrayList<>();
 
-        // Fase 1: ricerca semantica context-aware
+        // Fase 1: ricerca semantica context-aware, filtrata per settore
         for (String query : queries) {
             if (collected.size() >= MAX_DOCS) break;
             try {
-                List<Document> results = vectorStore.similaritySearch(
-                        SearchRequest.builder()
-                                .query(query)
-                                .topK(TOP_K)
-                                .similarityThreshold(SIMILARITY_THRESHOLD)
-                                .build()
-                );
+                SearchRequest.Builder reqBuilder = SearchRequest.builder()
+                        .query(query)
+                        .topK(TOP_K)
+                        .similarityThreshold(SIMILARITY_THRESHOLD);
+                if (filterExpr != null) reqBuilder.filterExpression(filterExpr);
+
+                List<Document> results = vectorStore.similaritySearch(reqBuilder.build());
                 if (results != null) {
                     for (Document doc : results) {
                         if (collected.size() >= MAX_DOCS) break;
@@ -85,20 +118,19 @@ public class InternalPricingRetriever {
             }
         }
 
-        // Fase 2: sweep totale per raccogliere i chunk non catturati dalla ricerca semantica.
-        // Usa threshold=0.0 e TOP_K=MAX_DOCS per pescare tutti i documenti del vector store;
-        // la deduplicazione su seenIds evita duplicati già raccolti in Fase 1.
+        // Fase 2: sweep totale per raccogliere chunk non catturati dalla ricerca semantica,
+        // sempre filtrato per settore per evitare contaminazione cross-sector.
         if (collected.size() < MAX_DOCS) {
-            for (String query : COVERAGE_SWEEP_QUERIES) {
+            for (String query : sweepQueries) {
                 if (collected.size() >= MAX_DOCS) break;
                 try {
-                    List<Document> sweepResults = vectorStore.similaritySearch(
-                            SearchRequest.builder()
-                                    .query(query)
-                                    .topK(TOP_K_SWEEP)
-                                    .similarityThreshold(SIMILARITY_THRESHOLD_SWEEP)
-                                    .build()
-                    );
+                    SearchRequest.Builder reqBuilder = SearchRequest.builder()
+                            .query(query)
+                            .topK(TOP_K_SWEEP)
+                            .similarityThreshold(SIMILARITY_THRESHOLD_SWEEP);
+                    if (filterExpr != null) reqBuilder.filterExpression(filterExpr);
+
+                    List<Document> sweepResults = vectorStore.similaritySearch(reqBuilder.build());
                     for (Document doc : sweepResults) {
                         if (collected.size() >= MAX_DOCS) break;
                         String docId = doc.getId();
@@ -115,12 +147,45 @@ public class InternalPricingRetriever {
         }
 
         if (collected.isEmpty()) {
-            log.warn("Vector store vuoto o nessun dato pertinente trovato");
+            log.warn("Vector store vuoto o nessun dato pertinente trovato per sector={}", sector);
             return "";
         }
 
-        log.info("RAG coverage: {} chunk raccolti da {} file distinti", collected.size(), coveredFileIds.size());
+        log.info("RAG coverage: {} chunk raccolti da {} file distinti (sector={})",
+                collected.size(), coveredFileIds.size(), sector);
         return contextFormatter.format(collected);
+    }
+
+    private String buildFilterExpression(String sector) {
+        if (sector == null || sector.isBlank()) return null;
+        // Match either the requested sector or documents tagged as GENERIC (cross-sector)
+        return "sector == '" + sector + "' || sector == 'GENERIC'";
+    }
+
+    private List<String> buildSweepQueries(String sector) {
+        if ("RENEWABLE_ENERGY".equals(sector)) return RENEWABLE_COVERAGE_SWEEP_QUERIES;
+        return COVERAGE_SWEEP_QUERIES;
+    }
+
+    private List<String> buildQueries(ProjectInfoExtractor.ProjectInfo info, String sector) {
+        if ("RENEWABLE_ENERGY".equals(sector)) {
+            String tipo = info.tipoProgetto() != null ? info.tipoProgetto().toUpperCase() : "";
+            if (tipo.contains("EOLICO") || tipo.contains("WIND")) return WIND_QUERIES;
+            if (tipo.contains("BESS") || tipo.contains("ACCUMULO") || tipo.contains("STORAGE")) return BESS_QUERIES;
+            if (tipo.contains("FV") || tipo.contains("FOTOVOLTAICO") || tipo.contains("SOLAR") || tipo.contains("PV")) return SOLAR_QUERIES;
+            // Default for renewable: combine solar + wind (most common)
+            List<String> combined = new ArrayList<>(SOLAR_QUERIES);
+            combined.addAll(WIND_QUERIES);
+            return combined;
+        }
+
+        // OIL_GAS (default)
+        String tipo = info.tipoProgetto() != null ? info.tipoProgetto().toUpperCase() : "";
+        if ("IMPIANTO".equals(tipo)) return IMPIANTO_QUERIES;
+        if ("PIPELINE".equals(tipo)) return PIPELINE_QUERIES;
+        List<String> combined = new ArrayList<>(PIPELINE_QUERIES);
+        combined.addAll(IMPIANTO_QUERIES);
+        return combined;
     }
 
     private String getFileId(Document doc) {
@@ -128,19 +193,4 @@ public class InternalPricingRetriever {
         Object fileId = doc.getMetadata().get("fileId");
         return fileId != null ? fileId.toString() : null;
     }
-
-    private List<String> buildQueries(ProjectInfoExtractor.ProjectInfo info) {
-        String tipo = info.tipoProgetto() != null ? info.tipoProgetto().toUpperCase() : "";
-        if ("IMPIANTO".equals(tipo)) {
-            return IMPIANTO_QUERIES;
-        } else if ("PIPELINE".equals(tipo)) {
-            return PIPELINE_QUERIES;
-        } else {
-            // MISTO o non specificato: unione di entrambe
-            List<String> combined = new ArrayList<>(PIPELINE_QUERIES);
-            combined.addAll(IMPIANTO_QUERIES);
-            return combined;
-        }
-    }
-
 }

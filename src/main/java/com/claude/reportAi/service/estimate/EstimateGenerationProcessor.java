@@ -4,6 +4,7 @@ import com.claude.reportAi.entities.Estimate;
 import com.claude.reportAi.exception.JobCancelledException;
 import com.claude.reportAi.repository.EstimateRepository;
 import com.claude.reportAi.service.ModelChatClientFactory;
+import com.claude.reportAi.service.PromptTemplateService;
 import com.claude.reportAi.service.TokenRateLimiter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -42,8 +43,9 @@ public class EstimateGenerationProcessor {
     private final EstimateReportBuilder estimateReportBuilder;
     private final PdfPageImageExtractor pdfPageImageExtractor;
     private final ObjectMapper objectMapper;
+    private final PromptTemplateService promptTemplateService;
 
-    private static final String SYSTEM_PROMPT = """
+    private static final String SYSTEM_PROMPT_FALLBACK = """
             # RUOLO
             Sei un cost estimator / tendering manager senior con 30 anni di esperienza specifica in EPC oil & gas onshore per pipeline e altri impianti.
             Conosci perfettamente: processi di ingegneria e loro costi, materiali, operazioni di cantiere, interfacce tra civile/meccanico/elettrico/strumentale, rischi reali di progetto, normative locali e pratiche di mercato.
@@ -251,6 +253,17 @@ public class EstimateGenerationProcessor {
         long startTime = System.currentTimeMillis();
 
         try {
+            String sector = loadJob(jobId).getSector();
+            final String systemPrompt;
+            final String userTemplate;
+            try {
+                systemPrompt = promptTemplateService.resolve("estimate-generation-system", sector);
+                userTemplate = promptTemplateService.resolve("estimate-generation-user", sector);
+            } catch (Exception e) {
+                log.warn("Prompt template non trovato per sector={}, workflow=estimate-generation", sector);
+                throw e;
+            }
+
             // Step 1 – Estrazione testo
             updateJob(jobId, Estimate.JobStatus.PROCESSING, 2, "Estrazione testo dal documento");
             String fullText = extractText(pdfBytes);
@@ -270,7 +283,7 @@ public class EstimateGenerationProcessor {
 
             // Step 3 – Recupero prezzi interni
             updateProgress(jobId, 25, "Recupero prezzi interni aziendali");
-            String internalPricing = internalPricingRetriever.retrieveContext(info);
+            String internalPricing = internalPricingRetriever.retrieveContext(info, sector);
             log.info("Prezzi interni (vector store): {} caratteri (~{} token stimati)",
                     internalPricing != null ? internalPricing.length() : 0,
                     internalPricing != null ? internalPricing.length() / 3 : 0);
@@ -330,23 +343,23 @@ public class EstimateGenerationProcessor {
 
             throwIfCancelled(jobId);
             updateProgress(jobId, 70, "Generazione preventivo con " + model);
-            String userPrompt = buildUserPrompt(info, internalPricing, searchResults, !pageImages.isEmpty());
+            String userPrompt = buildUserPrompt(info, internalPricing, searchResults, !pageImages.isEmpty(), userTemplate);
 
             log.info("Prompt inviato al modello: {} caratteri (~{} token stimati) | {} immagini | modello={}",
                     userPrompt.length(), userPrompt.length() / 3, pageImages.size(), model);
-            log.debug("System prompt:\n{}", SYSTEM_PROMPT);
+            log.debug("System prompt:\n{}", systemPrompt);
             log.debug("User prompt completo:\n{}", userPrompt);
 
             // Gemini: system prompt merged nel user message per garantire che le istruzioni
             // vengano applicate correttamente (Spring AI Vertex AI gestisce system() in modo
             // meno vincolante rispetto ad Anthropic).
             // Nota: il limite massimo dei modelli Gemini è 65535 (bound esclusivo), non 65536.
-            String effectiveSystem = SYSTEM_PROMPT;
+            String effectiveSystem = systemPrompt;
             String effectiveUser = userPrompt;
             int maxOutputTokens = 16000;
             if (ModelChatClientFactory.isGeminiModel(model)) {
                 effectiveUser = "[ISTRUZIONI OBBLIGATORIE - APPLICARE CON PRIORITÀ ASSOLUTA]\n"
-                        + SYSTEM_PROMPT.strip()
+                        + systemPrompt.strip()
                         + "\n\n"
                         + userPrompt;
                 effectiveSystem = "Sei un assistente AI specializzato in analisi EPC oil & gas. Segui le istruzioni nel messaggio utente.";
@@ -427,7 +440,8 @@ public class EstimateGenerationProcessor {
             ProjectInfoExtractor.ProjectInfo info,
             String internalPricing,
             Map<String, List<WebSearchService.SearchResult>> searchResults,
-            boolean hasImages) throws Exception {
+            boolean hasImages,
+            String userTemplate) throws Exception {
 
         // Map.of() supporta max 10 entries — usiamo LinkedHashMap per mantenere l'ordine
         Map<String, Object> projectInfoMap = new LinkedHashMap<>();
@@ -474,80 +488,13 @@ public class EstimateGenerationProcessor {
             }
         }
 
-        sb.append("[ISTRUZIONI]\n");
         if (hasImages) {
+            sb.append("[NOTA IMMAGINI]\n");
             sb.append("Sono allegate le immagini delle pagine principali del documento PDF.\n");
             sb.append("Analizza attentamente eventuali Gantt, cronoprogrammi, schemi tecnici o tabelle nelle immagini.\n");
-            sb.append("Usa le informazioni visive per ricavare durate delle fasi, sequenze di attività e dati tecnici non presenti nel testo.\n");
+            sb.append("Usa le informazioni visive per ricavare durate delle fasi, sequenze di attività e dati tecnici non presenti nel testo.\n\n");
         }
-        sb.append("Genera un preventivo dettagliato per questo progetto.\n");
-
-        String tipoUp = info.tipoProgetto() != null ? info.tipoProgetto().toUpperCase() : "";
-
-        sb.append("Voce VI.a Overhead (OH): 6% del subtotale I-V. Voce VI.b Contingency: 2% del subtotale I-V. Voce VI.c Costi Finanziari e Assicurazioni: 3-5% del subtotale I-V.\n");
-        sb.append("Includi sempre: mobilizzazione, costruzione, subcontratti (Forniture + Subappalti separati), indiretti, vitto/alloggio, OH/contingency/finanziari.\n");
-        sb.append("Tutti gli importi in EUR. Il report deve essere dettagliato e professionale.\n\n");
-
-        sb.append("Restituisci ESCLUSIVAMENTE questo JSON:\n");
-        sb.append("""
-                {
-                  "nazione": "...",
-                  "tipo_progetto": "...",
-                  "cambio_eur_usd": 1.08,
-                  "executive_summary": "3-5 frasi per top management",
-                  "quadro_economico": [
-                    {"voce": "I - Mobilizzazione e Temporary Facilities", "importo_usd": 0, "percentuale": 0.0, "note": "..."},
-                    {"voce": "II - Costruzione (mezzi + personale + carburante)", "importo_usd": 0, "percentuale": 0.0, "note": "..."},
-                    {"voce": "III - Subcontratti e Forniture", "importo_usd": 0, "percentuale": 0.0, "note": "..."},
-                    {"voce": "IV - Indiretti", "importo_usd": 0, "percentuale": 0.0, "note": "..."},
-                    {"voce": "V - Vitto e Alloggio", "importo_usd": 0, "percentuale": 0.0, "note": "..."},
-                    {"voce": "SUBTOTALE I-V", "importo_usd": 0, "percentuale": 100.0, "note": ""},
-                    {"voce": "VI.a - Overhead / OH (6%)", "importo_usd": 0, "percentuale": 6.0, "note": "6% su subtotale I-V"},
-                    {"voce": "VI.b - Contingency (2%)", "importo_usd": 0, "percentuale": 2.0, "note": "2% su subtotale I-V"},
-                    {"voce": "VI.c - Costi Finanziari e Assicurazioni (4%)", "importo_usd": 0, "percentuale": 4.0, "note": "3-5% su subtotale I-V"},
-                    {"voce": "VII - COSTO TOTALE", "importo_usd": 0, "percentuale": 0.0, "note": ""},
-                    {"voce": "VIII - PREZZO (margine 8%)", "importo_usd": 0, "percentuale": 0.0, "note": ""}
-                  ],
-                  "kpi": {
-                    "prezzo_totale_usd": 0,
-                    "prezzo_al_km": null,
-                    "prezzo_al_metro": null,
-                    "prezzo_inch_metro": null,
-                    "personale_diretto": 0,
-                    "personale_indiretto": 0,
-                    "personale_totale": 0,
-                    "durata_mesi": 0,
-                    "ore_uomo_stimate": 0
-                  },
-                  "analisi_dettaglio": [
-                    {
-                      "categoria": "Mobilizzazione e Temporary Facilities",
-                      "importo_usd": 0,
-                      "descrizione": "...",
-                      "produttivita_applicata": null,
-                      "voci_principali": [
-                        {"descrizione": "...", "quantita": "...", "costo_unitario_usd": "...", "fonte_dato": "AZIENDALE|BENCHMARK|ASSUNZIONE", "totale_usd": 0}
-                      ],
-                      "assunzioni": ["..."],
-                      "rischi": ["..."]
-                    }
-                  ],
-                  "imposte_e_oneri": {
-                    "wht_percentuale": "...",
-                    "vat_percentuale": "...",
-                    "customs": "...",
-                    "impatto_stimato_usd": 0,
-                    "note": "..."
-                  },
-                  "rischi_principali": [
-                    {"categoria": "...", "descrizione": "...", "impatto": "ALTO|MEDIO|BASSO", "mitigazione": "..."}
-                  ],
-                  "cronoprogramma_sintetico": [
-                    {"fase": "...", "durata": "...", "settimane": "...", "note": "..."}
-                  ],
-                  "note_finali": "..."
-                }
-                """);
+        sb.append(userTemplate);
 
         return sb.toString();
     }

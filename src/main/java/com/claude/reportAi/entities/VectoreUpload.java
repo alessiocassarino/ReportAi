@@ -28,6 +28,8 @@ public class VectoreUpload {
 
     private UUID storedFileId;
 
+    private String sector;
+
     @Column(columnDefinition = "TEXT")
     private String errorMessage;
 

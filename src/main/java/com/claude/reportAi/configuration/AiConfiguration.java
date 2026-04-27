@@ -26,7 +26,7 @@ import java.io.IOException;
 import java.time.Duration;
 
 @Configuration
-public class AiToolConfiguration {
+public class AiConfiguration {
 
     @Bean
     @Primary

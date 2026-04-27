@@ -21,6 +21,10 @@ public class PriceComparisonService {
     private final PriceComparisonProcessor processor;
 
     public UUID startComparison(List<byte[]> fileContents, List<String> filenames, String model, String customOutputFileName) {
+        return startComparison(fileContents, filenames, model, customOutputFileName, "OIL_GAS");
+    }
+
+    public UUID startComparison(List<byte[]> fileContents, List<String> filenames, String model, String customOutputFileName, String sector) {
         if (fileContents == null || fileContents.isEmpty()) {
             throw new IllegalArgumentException("Fornire almeno un file PDF.");
         }
@@ -37,6 +41,7 @@ public class PriceComparisonService {
         job.setNumFiles(fileContents.size());
         job.setProgress(0);
         job.setCurrentStep("In attesa di elaborazione");
+        job.setSector(sector != null ? sector : "OIL_GAS");
 
         String sanitizedOutputFileName = FileNameSanitizer.sanitize(customOutputFileName);
         if (sanitizedOutputFileName != null) {

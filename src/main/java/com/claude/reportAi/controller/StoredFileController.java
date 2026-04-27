@@ -45,7 +45,8 @@ public class StoredFileController {
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAnyRole('ADMIN', 'USER', 'ANALYST')")
     public ResponseEntity<List<StartUploadResponse>> upload(
-            @RequestPart("files") List<MultipartFile> files) throws IOException {
+            @RequestPart("files") List<MultipartFile> files,
+            @RequestParam(value = "sector", required = false, defaultValue = "OIL_GAS") String sector) throws IOException {
 
         List<StartUploadResponse> responses = new ArrayList<>();
 
@@ -61,11 +62,12 @@ public class StoredFileController {
 
             VectoreUpload job = new VectoreUpload();
             job.setOriginalFilename(originalFilename);
+            job.setSector(sector);
             vectorUploadRepository.save(job);
 
-            ingestionProcessor.processAsync(job.getId(), bytes, originalFilename, contentType);
+            ingestionProcessor.processAsync(job.getId(), bytes, originalFilename, contentType, sector);
 
-            log.info("Job upload creato: {} | file={} | size={} bytes", job.getId(), originalFilename, bytes.length);
+            log.info("Job upload creato: {} | file={} | size={} bytes | sector={}", job.getId(), originalFilename, bytes.length, sector);
 
             responses.add(new StartUploadResponse(
                     job.getId().toString(),

@@ -8,6 +8,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -72,7 +73,7 @@ public class AuthController {
      * Il refresh token può essere passato nel body oppure viene utilizzato quello della sessione
      */
     @PostMapping("/logout")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     @Operation(summary = "User logout", description = "Logout user by revoking refresh token")
     public ResponseEntity<?> logout(
             @RequestBody(required = false) RefreshTokenRequest request) {
@@ -96,7 +97,7 @@ public class AuthController {
      * Logout from all devices endpoint
      */
     @PostMapping("/logout-all-devices")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     @Operation(summary = "Logout from all devices", description = "Revoke all refresh tokens for the current user")
     public ResponseEntity<?> logoutAllDevices() {
         String email = SecurityContextHolder.getContext().getAuthentication().getName();
@@ -143,6 +144,7 @@ public class AuthController {
     }
 
     // Inner class for generic API response
+    @Getter
     public static class ApiResponse {
         public String message;
 
@@ -150,9 +152,6 @@ public class AuthController {
             this.message = message;
         }
 
-        public String getMessage() {
-            return message;
-        }
     }
 }
 

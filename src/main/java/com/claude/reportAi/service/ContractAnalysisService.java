@@ -20,6 +20,10 @@ public class ContractAnalysisService {
     private final ContractAnalysisProcessor processor;
 
     public UUID startAnalysis(MultipartFile file, String model, String customOutputFileName) throws IOException {
+        return startAnalysis(file, model, customOutputFileName, "OIL_GAS");
+    }
+
+    public UUID startAnalysis(MultipartFile file, String model, String customOutputFileName, String sector) throws IOException {
         validateFile(file);
         ModelChatClientFactory.findModel(model); // valida che il modello sia supportato
 
@@ -30,6 +34,7 @@ public class ContractAnalysisService {
         ContractAnalysis job = new ContractAnalysis();
         job.setModel(model);
         job.setOriginalFilename(originalFilename);
+        job.setSector(sector != null ? sector : "OIL_GAS");
 
         String sanitizedOutputFileName = FileNameSanitizer.sanitize(customOutputFileName);
         if (sanitizedOutputFileName != null) {

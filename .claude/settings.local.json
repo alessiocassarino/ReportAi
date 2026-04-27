@@ -26,7 +26,21 @@
       "WebSearch",
       "Bash(awk -F/ '{print $NF}')",
       "Bash(echo \"TOTAL JAVA FILES: $\\(find src/main/java -name \"*.java\")",
-      "Bash(git rm *)"
+      "Bash(git rm *)",
+      "Bash(pip show *)",
+      "Bash(py --version)",
+      "Bash(where python3 *)",
+      "Bash(where py *)",
+      "Bash(npm --version)",
+      "Bash(mkdir -p \"/c/Users/alessio.cassarino/Desktop/reportAi/test-documents/renewable-energy\")",
+      "Bash(mkdir -p \"/c/Users/alessio.cassarino/Desktop/reportAi/.pdf-gen-tmp\")",
+      "Bash(npm install *)",
+      "Bash(node generate.js)",
+      "Bash(mkdir -p /c/Users/alessio.cassarino/Desktop/reportAi/.pdf-gen-tmp)",
+      "Bash(npm init *)",
+      "Bash(mkdir -p /c/Users/alessio.cassarino/Desktop/pdf-gen-re)",
+      "Read(//c/Users/alessio.cassarino/Desktop/**)",
+      "Bash(powershell.exe -Command \"Remove-Item -Path 'C:\\\\Users\\\\alessio.cassarino\\\\Desktop\\\\pdf-gen-re' -Recurse -Force\")"
     ]
   }
 }

@@ -13,6 +13,7 @@ import org.springframework.security.config.annotation.authentication.configurati
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -64,7 +65,7 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
 
                 // CSRF Protection - Disabilitato per API REST con JWT
-                .csrf(csrf -> csrf.disable())
+                .csrf(AbstractHttpConfigurer::disable)
 
                 // Session Management - Stateless per JWT
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -87,11 +88,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
                         // Protected endpoints
-                        .requestMatchers("/api/contracts/**").hasAnyRole("ADMIN", "USER", "ANALYST")
-                        .requestMatchers("/api/estimates/**").hasAnyRole("ADMIN", "USER", "ANALYST")
                         .requestMatchers("/api/documents/**").hasAnyRole("ADMIN", "USER", "ANALYST")
-                        .requestMatchers("/api/price-comparison/**").hasAnyRole("ADMIN", "USER", "ANALYST")
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                        .requestMatchers("/api/v2/**").hasAnyRole("ADMIN", "USER", "ANALYST")
 
                         // Default - require authentication
                         .anyRequest().authenticated()

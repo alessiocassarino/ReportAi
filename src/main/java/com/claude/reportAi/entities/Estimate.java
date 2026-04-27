@@ -42,6 +42,9 @@ public class Estimate {
 
     private String originalFilename;
 
+    @Column(nullable = false, length = 50)
+    private String sector = "OIL_GAS";
+
     @Column(nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 

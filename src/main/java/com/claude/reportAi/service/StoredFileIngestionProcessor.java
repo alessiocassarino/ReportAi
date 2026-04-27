@@ -20,8 +20,8 @@ public class StoredFileIngestionProcessor {
     private final VectorUploadRepository vectorUploadRepository;
 
     @Async("documentUploadExecutor")
-    public void processAsync(UUID jobId, byte[] bytes, String originalFilename, String contentType) {
-        log.info("START ingestione | jobId={} | file={} | size={} bytes", jobId, originalFilename, bytes.length);
+    public void processAsync(UUID jobId, byte[] bytes, String originalFilename, String contentType, String sector) {
+        log.info("START ingestione | jobId={} | file={} | size={} bytes | sector={}", jobId, originalFilename, bytes.length, sector);
 
         VectoreUpload job = loadJob(jobId);
         throwIfCancelled(jobId);
@@ -29,7 +29,7 @@ public class StoredFileIngestionProcessor {
         vectorUploadRepository.save(job);
 
         try {
-            VectorUploadResponse result = storedFileService.ingest(bytes, originalFilename, contentType);
+            VectorUploadResponse result = storedFileService.ingest(bytes, originalFilename, contentType, sector);
 
             job = loadJob(jobId);
             job.setStoredFileId(result.getId());

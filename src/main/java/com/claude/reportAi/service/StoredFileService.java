@@ -65,10 +65,11 @@ public class StoredFileService {
     private String storageRoot;
 
     @Transactional
-    public VectorUploadResponse ingest(byte[] bytes, String originalFilename, String contentType) {
+    public VectorUploadResponse ingest(byte[] bytes, String originalFilename, String contentType, String sector) {
         validateFile(bytes, originalFilename, contentType);
 
         Path destination = null;
+        String resolvedSector = (sector != null && !sector.isBlank()) ? sector : "OIL_GAS";
 
         try {
             String sha256 = sha256Hex(bytes);
@@ -106,11 +107,12 @@ public class StoredFileService {
                     .extractedText(extraction.text())
                     .metadataJson(objectMapper.writeValueAsString(extraction.tikaMetadata()))
                     .extractionStatus("DONE")
+                    .sector(resolvedSector)
                     .build();
 
             storedFileRepository.save(entity);
 
-            List<Document> chunks = toChunks(entity, extraction.text(), extraction.tikaMetadata());
+            List<Document> chunks = toChunks(entity, extraction.text(), extraction.tikaMetadata(), resolvedSector);
 
             log.info("File '{}' estratto: {} chars, {} chunks generati",
                     entity.getOriginalFilename(),
@@ -195,12 +197,12 @@ public class StoredFileService {
     // Chunking with overlap
     // -----------------------------------------------------------------------
 
-    private List<Document> toChunks(StoredFile entity, String text, Map<String, Object> tikaMetadata) {
+    private List<Document> toChunks(StoredFile entity, String text, Map<String, Object> tikaMetadata, String sector) {
         if (text == null || text.isBlank()) {
             return List.of();
         }
 
-        Document whole = new Document(text, buildBaseMetadata(entity, tikaMetadata));
+        Document whole = new Document(text, buildBaseMetadata(entity, tikaMetadata, sector));
 
         TokenTextSplitter splitter = TokenTextSplitter.builder()
                 .withChunkSize(CHUNK_SIZE)
@@ -318,7 +320,7 @@ public class StoredFileService {
     // Metadata builder
     // -----------------------------------------------------------------------
 
-    private Map<String, Object> buildBaseMetadata(StoredFile entity, Map<String, Object> tikaMetadata) {
+    private Map<String, Object> buildBaseMetadata(StoredFile entity, Map<String, Object> tikaMetadata, String sector) {
         Map<String, Object> metadata = new HashMap<>();
 
         // Core identifiers
@@ -327,6 +329,7 @@ public class StoredFileService {
         metadata.put("filename", Objects.toString(entity.getOriginalFilename(), "unknown"));
         metadata.put("contentType", Objects.toString(entity.getContentType(), "unknown"));
         metadata.put("sha256", Objects.toString(entity.getSha256(), "unknown"));
+        metadata.put("sector", sector);
 
         // Size and time — useful for filtering in RAG queries
         metadata.put("fileSizeBytes", entity.getSizeBytes());

@@ -46,6 +46,8 @@ public class StoredFile {
     @Column(columnDefinition = "TEXT")
     private String metadataJson;
 
+    private String sector;
+
     @CreationTimestamp
     private Instant createdAt;
 }
