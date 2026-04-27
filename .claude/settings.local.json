@@ -25,7 +25,8 @@
       "Bash(javap -private org/springframework/ai/vertexai/gemini/VertexAiGeminiChatOptions.class)",
       "WebSearch",
       "Bash(awk -F/ '{print $NF}')",
-      "Bash(echo \"TOTAL JAVA FILES: $\\(find src/main/java -name \"*.java\")"
+      "Bash(echo \"TOTAL JAVA FILES: $\\(find src/main/java -name \"*.java\")",
+      "Bash(git rm *)"
     ]
   }
 }

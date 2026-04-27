@@ -32,4 +32,10 @@ build/
 ### VS Code ###
 .vscode/
 
-### Secrets ###
+### Secrets & Environment ###
+.env
+.env.*
+!.env.example
+
+### Google Cloud Credentials ###
+src/main/resources/config/*.json
