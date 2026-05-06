@@ -26,7 +26,14 @@
       "WebSearch",
       "Bash(awk -F/ '{print $NF}')",
       "Bash(echo \"TOTAL JAVA FILES: $\\(find src/main/java -name \"*.java\")",
-      "Bash(git rm *)"
+      "Bash(git rm *)",
+      "Bash(uv *)",
+      "Bash(./mvnw -q -DskipTests compile)",
+      "Bash(where java *)",
+      "Bash(java --version)",
+      "PowerShell($found = Get-ChildItem -Path \"C:\\\\\" -Filter \"javac.exe\" -Recurse -ErrorAction SilentlyContinue -Depth 5 | Where-Object { $_.FullName -match \"21\" }; $found | Select-Object FullName -First 3)",
+      "Bash(git check-ignore *)",
+      "Bash(git add *)"
     ]
   }
 }

@@ -76,14 +76,21 @@ public class EstimateReportBuilder {
             addCoverPage(doc, root, info, originalFilename);
             addPageBreak(doc);
             addExecutiveSummary(doc, root, info);
+            addEstimateStatusAndAssumptions(doc, root);
+            addPageBreak(doc);
+            addScopeCheck(doc, root);
             addPageBreak(doc);
             addCostSummaryTable(doc, root);
             addPageBreak(doc);
+            addBenchmarkComparison(doc, root);
+            addPageBreak(doc);
             addDetailedAnalysis(doc, root);
             addPageBreak(doc);
-            addTaxesSection(doc, root);
-            addPageBreak(doc);
             addRisksTable(doc, root);
+            addPageBreak(doc);
+            addSensitivityAnalysis(doc, root);
+            addPageBreak(doc);
+            addContractualRecommendations(doc, root);
             addPageBreak(doc);
             addTimeline(doc, root);
             if (searchResults != null && !searchResults.isEmpty()) {
@@ -264,11 +271,161 @@ public class EstimateReportBuilder {
     }
 
     // -------------------------------------------------------------------------
+    // Estimate Status & Key Assumptions
+    // -------------------------------------------------------------------------
+    // Banner che qualifica la stima (DEFINITIVE vs WITH_ASSUMPTIONS) e box con
+    // le assunzioni progettuali a livello globale. Va subito dopo l'executive
+    // summary perché qualifica la lettura di tutti i numeri successivi.
+
+    private void addEstimateStatusAndAssumptions(XWPFDocument doc, JsonNode root) {
+        String status = getTextSafe(root, "estimate_status", "").toUpperCase().trim();
+        JsonNode assumptions = root.path("assumptions_taken");
+
+        if (status.isBlank() && (!assumptions.isArray() || assumptions.isEmpty())) {
+            return;
+        }
+
+        addSpacer(doc, 1);
+
+        // Banner status
+        if (!status.isBlank()) {
+            boolean withAssumptions = status.contains("ASSUMPTIONS");
+            String bannerBg = withAssumptions ? C_MEDIO_BG : C_BASSO_BG;
+            String bannerFg = withAssumptions ? C_WARN     : C_GREEN;
+            String bannerLabel = withAssumptions
+                    ? "STIMA CON ASSUNZIONI — qualifica i valori con le ipotesi sotto"
+                    : "STIMA DEFINITIVA — basata su dati documentati";
+
+            XWPFTable bannerTable = doc.createTable(1, 1);
+            setTableWidth(bannerTable, CONTENT_WIDTH);
+            XWPFTableCell bannerCell = bannerTable.getRow(0).getCell(0);
+            setCellBackground(bannerCell, bannerBg);
+            setCellText(bannerCell, bannerLabel, bannerFg, 11, true);
+            bannerCell.getParagraphs().getFirst().setAlignment(ParagraphAlignment.CENTER);
+            addTableBorders(bannerTable);
+        }
+
+        // Box assunzioni progettuali
+        if (assumptions.isArray() && !assumptions.isEmpty()) {
+            addSpacer(doc, 1);
+            addHeading2(doc, "Assunzioni Progettuali Adottate");
+
+            XWPFTable assBox = doc.createTable(1, 1);
+            setTableWidth(assBox, CONTENT_WIDTH);
+            XWPFTableCell assCell = assBox.getRow(0).getCell(0);
+            setCellBackground(assCell, "FFF3E8");
+
+            while (assCell.getParagraphs().size() > 1) {
+                assCell.removeParagraph(assCell.getParagraphs().size() - 1);
+            }
+            XWPFParagraph firstP = assCell.getParagraphs().getFirst();
+            for (int i = firstP.getRuns().size() - 1; i >= 0; i--) firstP.removeRun(i);
+            XWPFRun headRun = firstP.createRun();
+            headRun.setText("Le seguenti assunzioni qualificano la stima. Una loro variazione modifica il prezzo finale.");
+            headRun.setItalic(true);
+            headRun.setFontSize(9);
+            headRun.setColor(C_GRAY_TEXT);
+            headRun.setFontFamily("Calibri");
+
+            for (JsonNode ass : assumptions) {
+                XWPFParagraph p = assCell.addParagraph();
+                XWPFRun r = p.createRun();
+                r.setText("• " + ass.asText());
+                r.setFontSize(10);
+                r.setFontFamily("Calibri");
+                r.setColor(C_DARK_TEXT);
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Scope Check (9 voci A-I)
+    // -------------------------------------------------------------------------
+    // Tabella che fissa il perimetro contrattuale: cosa è IN/OUT/PARZIALE.
+    // È la voce più importante del preventivo perché definisce il prezzo —
+    // nelle dispute EPC è qui che si gioca tutto.
+
+    private void addScopeCheck(XWPFDocument doc, JsonNode root) {
+        addHeading1(doc, "2. SCOPE MATRIX — DEFINIZIONE DEL PERIMETRO");
+
+        JsonNode scope = root.path("scope_check");
+        if (!scope.isArray() || scope.isEmpty()) {
+            addBodyText(doc, "Scope check non disponibile.");
+            return;
+        }
+
+        addBodyText(doc,
+                "Stato di inclusione delle 9 macro-voci di un EPC oil & gas onshore. "
+              + "INCLUSO = nello scope a prezzo fisso, PARZIALE = parte dello scope, "
+              + "ESCLUSO = fuori scope (rischio contrattuale se attivato), "
+              + "INCERTO = dato non chiaro nei documenti, vedere assunzioni.");
+
+        int[] colWidths = {700, 3300, 1300, 4060};
+        String[] headers = {"Cod.", "Voce", "Stato", "Note"};
+
+        XWPFTable table = doc.createTable(scope.size() + 1, 4);
+        setTableWidth(table, CONTENT_WIDTH);
+        setTableCellSpacing(table, 40);
+
+        XWPFTableRow hr = table.getRow(0);
+        for (int i = 0; i < headers.length; i++) {
+            setCellWidth(hr.getCell(i), colWidths[i]);
+            setCellBackground(hr.getCell(i), C_NAVY);
+            setCellText(hr.getCell(i), headers[i], C_WHITE, 10, true);
+        }
+        hr.getCell(0).getParagraphs().getFirst().setAlignment(ParagraphAlignment.CENTER);
+        hr.getCell(2).getParagraphs().getFirst().setAlignment(ParagraphAlignment.CENTER);
+
+        int rowIdx = 1;
+        boolean alt = false;
+        for (JsonNode v : scope) {
+            String stato = getTextSafe(v, "stato", "INCERTO").toUpperCase().trim();
+            String statoBg = switch (stato) {
+                case "INCLUSO"  -> "D1FAE5";
+                case "PARZIALE" -> "FEF3C7";
+                case "ESCLUSO"  -> "FEE2E2";
+                default          -> "F3F4F6";
+            };
+            String statoFg = switch (stato) {
+                case "INCLUSO"  -> C_GREEN;
+                case "PARZIALE" -> C_WARN;
+                case "ESCLUSO"  -> C_RED;
+                default          -> C_GRAY_TEXT;
+            };
+            String rowBg = alt ? C_LIGHT_BG : C_WHITE;
+
+            XWPFTableRow row = table.getRow(rowIdx);
+
+            setCellWidth(row.getCell(0), colWidths[0]);
+            setCellBackground(row.getCell(0), rowBg);
+            setCellText(row.getCell(0), getTextSafe(v, "codice", ""), C_DARK_TEXT, 10, true);
+            row.getCell(0).getParagraphs().getFirst().setAlignment(ParagraphAlignment.CENTER);
+
+            setCellWidth(row.getCell(1), colWidths[1]);
+            setCellBackground(row.getCell(1), rowBg);
+            setCellText(row.getCell(1), getTextSafe(v, "voce", ""), C_DARK_TEXT, 10, false);
+
+            setCellWidth(row.getCell(2), colWidths[2]);
+            setCellBackground(row.getCell(2), statoBg);
+            setCellText(row.getCell(2), stato, statoFg, 9, true);
+            row.getCell(2).getParagraphs().getFirst().setAlignment(ParagraphAlignment.CENTER);
+
+            setCellWidth(row.getCell(3), colWidths[3]);
+            setCellBackground(row.getCell(3), rowBg);
+            setCellText(row.getCell(3), getTextSafe(v, "note", ""), C_DARK_TEXT, 9, false);
+
+            rowIdx++;
+            alt = !alt;
+        }
+        addTableBorders(table);
+    }
+
+    // -------------------------------------------------------------------------
     // Cost Summary Table
     // -------------------------------------------------------------------------
 
     private void addCostSummaryTable(XWPFDocument doc, JsonNode root) {
-        addHeading1(doc, "2. QUADRO ECONOMICO DI SINTESI");
+        addHeading1(doc, "3. QUADRO ECONOMICO DI SINTESI");
 
         JsonNode quadro = root.path("quadro_economico");
         if (!quadro.isArray() || quadro.isEmpty()) {
@@ -420,11 +577,121 @@ public class EstimateReportBuilder {
     }
 
     // -------------------------------------------------------------------------
+    // Benchmark Comparison
+    // -------------------------------------------------------------------------
+    // Risponde alla prima domanda del CFO: "siamo in linea con il mercato?".
+    // Confronta EUR/km e EUR/inch-m del progetto con i range benchmark per
+    // zona geografica e diametro, evidenziando il posizionamento.
+
+    private void addBenchmarkComparison(XWPFDocument doc, JsonNode root) {
+        addHeading1(doc, "4. POSIZIONAMENTO RISPETTO AI BENCHMARK DI MERCATO");
+
+        JsonNode bench = root.path("benchmark_comparison");
+        if (bench.isMissingNode() || bench.isNull()) {
+            addBodyText(doc, "Confronto benchmark non disponibile.");
+            return;
+        }
+
+        String zona = getTextSafe(bench, "zona_riferimento", "");
+        if (!zona.isBlank()) {
+            XWPFParagraph zonaP = doc.createParagraph();
+            XWPFRun zonaR = zonaP.createRun();
+            zonaR.setText("Zona di riferimento: " + zona);
+            zonaR.setFontSize(10);
+            zonaR.setItalic(true);
+            zonaR.setColor(C_GRAY_TEXT);
+            zonaR.setFontFamily("Calibri");
+            addSpacer(doc, 1);
+        }
+
+        int[] colWidths = {2700, 2200, 3000, 1460};
+        String[] headers = {"Indicatore", "Progetto", "Range benchmark", "Posizionam."};
+
+        XWPFTable table = doc.createTable(3, 4);
+        setTableWidth(table, CONTENT_WIDTH);
+        setTableCellSpacing(table, 40);
+
+        XWPFTableRow hr = table.getRow(0);
+        for (int i = 0; i < headers.length; i++) {
+            setCellWidth(hr.getCell(i), colWidths[i]);
+            setCellBackground(hr.getCell(i), C_NAVY);
+            setCellText(hr.getCell(i), headers[i], C_WHITE, 10, true);
+        }
+        hr.getCell(1).getParagraphs().getFirst().setAlignment(ParagraphAlignment.RIGHT);
+        hr.getCell(3).getParagraphs().getFirst().setAlignment(ParagraphAlignment.CENTER);
+
+        addBenchmarkRow(table, 1, "EUR / km",
+                getDoubleNode(bench, "eur_km_progetto", 0),
+                getDoubleNode(bench, "eur_km_benchmark_min", 0),
+                getDoubleNode(bench, "eur_km_benchmark_max", 0),
+                getTextSafe(bench, "eur_km_posizionamento", "—"),
+                colWidths);
+
+        addBenchmarkRow(table, 2, "EUR / inch-metro",
+                getDoubleNode(bench, "eur_inch_metro_progetto", 0),
+                getDoubleNode(bench, "eur_inch_metro_benchmark_min", 0),
+                getDoubleNode(bench, "eur_inch_metro_benchmark_max", 0),
+                getTextSafe(bench, "eur_inch_metro_posizionamento", "—"),
+                colWidths);
+
+        addTableBorders(table);
+
+        String commento = getTextSafe(bench, "commento", "");
+        if (!commento.isBlank()) {
+            addSpacer(doc, 1);
+            addBodyText(doc, commento);
+        }
+    }
+
+    private void addBenchmarkRow(XWPFTable table, int rowIdx, String label,
+                                  double progetto, double min, double max, String pos, int[] colWidths) {
+        boolean alt = (rowIdx % 2 == 0);
+        String rowBg = alt ? C_LIGHT_BG : C_WHITE;
+        String posUp = pos == null ? "—" : pos.toUpperCase().trim();
+        String posBg = switch (posUp) {
+            case "BASSO"        -> "D1FAE5";
+            case "MEDIO"        -> "EEF2FF";
+            case "ALTO"         -> "FEF3C7";
+            case "FUORI RANGE"  -> "FEE2E2";
+            default              -> "F3F4F6";
+        };
+        String posFg = switch (posUp) {
+            case "BASSO"        -> C_GREEN;
+            case "MEDIO"        -> C_SUBTOTAL;
+            case "ALTO"         -> C_WARN;
+            case "FUORI RANGE"  -> C_RED;
+            default              -> C_GRAY_TEXT;
+        };
+
+        XWPFTableRow row = table.getRow(rowIdx);
+
+        setCellWidth(row.getCell(0), colWidths[0]);
+        setCellBackground(row.getCell(0), rowBg);
+        setCellText(row.getCell(0), label, C_DARK_TEXT, 10, true);
+
+        setCellWidth(row.getCell(1), colWidths[1]);
+        setCellBackground(row.getCell(1), rowBg);
+        setCellText(row.getCell(1), "€ " + formatUsd(progetto), C_DARK_TEXT, 10, true);
+        row.getCell(1).getParagraphs().getFirst().setAlignment(ParagraphAlignment.RIGHT);
+
+        setCellWidth(row.getCell(2), colWidths[2]);
+        setCellBackground(row.getCell(2), rowBg);
+        String range = "€ " + formatUsd(min) + "  –  € " + formatUsd(max);
+        setCellText(row.getCell(2), range, C_GRAY_TEXT, 9, false);
+        row.getCell(2).getParagraphs().getFirst().setAlignment(ParagraphAlignment.CENTER);
+
+        setCellWidth(row.getCell(3), colWidths[3]);
+        setCellBackground(row.getCell(3), posBg);
+        setCellText(row.getCell(3), posUp, posFg, 9, true);
+        row.getCell(3).getParagraphs().getFirst().setAlignment(ParagraphAlignment.CENTER);
+    }
+
+    // -------------------------------------------------------------------------
     // Detailed Analysis
     // -------------------------------------------------------------------------
 
     private void addDetailedAnalysis(XWPFDocument doc, JsonNode root) {
-        addHeading1(doc, "3. ANALISI DETTAGLIATA DEI COSTI");
+        addHeading1(doc, "5. ANALISI DETTAGLIATA DEI COSTI");
 
         JsonNode dettaglio = root.path("analisi_dettaglio");
         if (!dettaglio.isArray() || dettaglio.isEmpty()) {
@@ -580,49 +847,11 @@ public class EstimateReportBuilder {
     }
 
     // -------------------------------------------------------------------------
-    // Taxes Section
-    // -------------------------------------------------------------------------
-
-    private void addTaxesSection(XWPFDocument doc, JsonNode root) {
-        addHeading1(doc, "4. IMPOSTE E ONERI FISCALI");
-
-        JsonNode taxes = root.path("imposte_e_oneri");
-        if (taxes.isMissingNode() || taxes.isNull()) {
-            addBodyText(doc, "Nessuna informazione fiscale disponibile.");
-            return;
-        }
-
-        String[][] rows = {
-                {"WHT (Ritenuta alla fonte)", getTextSafe(taxes, "wht_percentuale", "N/D")},
-                {"IVA / VAT",                 getTextSafe(taxes, "vat_percentuale", "N/D")},
-                {"Dazi doganali",             getTextSafe(taxes, "customs", "N/D")},
-                {"Impatto stimato",           "€ " + formatUsd(getDoubleNode(taxes, "impatto_stimato_usd", 0))},
-                {"Note",                      getTextSafe(taxes, "note", "")}
-        };
-
-        XWPFTable table = doc.createTable(rows.length, 2);
-        setTableWidth(table, CONTENT_WIDTH);
-        setTableCellSpacing(table, 40);
-        int half = CONTENT_WIDTH / 2;
-
-        for (int i = 0; i < rows.length; i++) {
-            XWPFTableRow row = table.getRow(i);
-            setCellWidth(row.getCell(0), half);
-            setCellBackground(row.getCell(0), C_LIGHT_BG);
-            setCellText(row.getCell(0), rows[i][0], C_DARK_TEXT, 10, true);
-            setCellWidth(row.getCell(1), half);
-            setCellBackground(row.getCell(1), C_WHITE);
-            setCellText(row.getCell(1), rows[i][1], C_DARK_TEXT, 10, false);
-        }
-        addTableBorders(table);
-    }
-
-    // -------------------------------------------------------------------------
     // Risks Table
     // -------------------------------------------------------------------------
 
     private void addRisksTable(XWPFDocument doc, JsonNode root) {
-        addHeading1(doc, "5. RISCHI PRINCIPALI");
+        addHeading1(doc, "6. RISCHI PRINCIPALI");
 
         JsonNode risks = root.path("rischi_principali");
         if (!risks.isArray() || risks.isEmpty()) {
@@ -630,10 +859,10 @@ public class EstimateReportBuilder {
             return;
         }
 
-        int[] colWidths = {1500, 3000, 900, 3960};
-        String[] headers = {"Categoria", "Descrizione", "Impatto", "Mitigazione"};
+        int[] colWidths = {1400, 2700, 800, 1500, 2960};
+        String[] headers = {"Categoria", "Descrizione", "Livello", "Impatto EUR", "Mitigazione"};
 
-        XWPFTable table = doc.createTable(risks.size() + 1, 4);
+        XWPFTable table = doc.createTable(risks.size() + 1, 5);
         setTableWidth(table, CONTENT_WIDTH);
         setTableCellSpacing(table, 40);
 
@@ -643,6 +872,7 @@ public class EstimateReportBuilder {
             setCellBackground(hr.getCell(i), C_NAVY);
             setCellText(hr.getCell(i), headers[i], C_WHITE, 10, true);
         }
+        hr.getCell(3).getParagraphs().getFirst().setAlignment(ParagraphAlignment.RIGHT);
 
         int rowIdx = 1;
         for (JsonNode risk : risks) {
@@ -674,9 +904,17 @@ public class EstimateReportBuilder {
             setCellText(row.getCell(2), impatto, impatFg, 9, true);
             row.getCell(2).getParagraphs().getFirst().setAlignment(ParagraphAlignment.CENTER);
 
+            // Nuova colonna: impatto monetario quantificato
+            double impattoEur = getDoubleNode(risk, "impatto_eur", 0.0);
             setCellWidth(row.getCell(3), colWidths[3]);
             setCellBackground(row.getCell(3), rowBg);
-            setCellText(row.getCell(3), getTextSafe(risk, "mitigazione", ""), C_DARK_TEXT, 9, false);
+            String impattoEurText = impattoEur > 0 ? "€ " + formatUsd(impattoEur) : "—";
+            setCellText(row.getCell(3), impattoEurText, C_DARK_TEXT, 9, true);
+            row.getCell(3).getParagraphs().getFirst().setAlignment(ParagraphAlignment.RIGHT);
+
+            setCellWidth(row.getCell(4), colWidths[4]);
+            setCellBackground(row.getCell(4), rowBg);
+            setCellText(row.getCell(4), getTextSafe(risk, "mitigazione", ""), C_DARK_TEXT, 9, false);
 
             rowIdx++;
         }
@@ -684,11 +922,175 @@ public class EstimateReportBuilder {
     }
 
     // -------------------------------------------------------------------------
+    // Sensitivity Analysis
+    // -------------------------------------------------------------------------
+    // Almeno 5 scenari per rispondere ai "what if" del top management:
+    // base, pessimistico, ottimistico, FX, rese. Mostra prezzo e delta vs base.
+
+    private void addSensitivityAnalysis(XWPFDocument doc, JsonNode root) {
+        addHeading1(doc, "7. ANALISI DI SENSITIVITÀ");
+
+        JsonNode scenarios = root.path("sensitivity_analysis");
+        if (!scenarios.isArray() || scenarios.isEmpty()) {
+            addBodyText(doc, "Analisi di sensitività non disponibile.");
+            return;
+        }
+
+        addBodyText(doc,
+                "Variazione del prezzo finale in funzione delle principali leve di rischio. "
+              + "Il caso base rappresenta il valore della stima. Le variazioni mostrano l'esposizione del prezzo a scostamenti di costi, rese o cambio.");
+
+        int[] colWidths = {2400, 3500, 1300, 1500, 660};
+        String[] headers = {"Scenario", "Descrizione", "Var. %", "Prezzo EUR", "Δ EUR"};
+
+        XWPFTable table = doc.createTable(scenarios.size() + 1, 5);
+        setTableWidth(table, CONTENT_WIDTH);
+        setTableCellSpacing(table, 40);
+
+        XWPFTableRow hr = table.getRow(0);
+        for (int i = 0; i < headers.length; i++) {
+            setCellWidth(hr.getCell(i), colWidths[i]);
+            setCellBackground(hr.getCell(i), C_NAVY);
+            setCellText(hr.getCell(i), headers[i], C_WHITE, 10, true);
+        }
+        hr.getCell(2).getParagraphs().getFirst().setAlignment(ParagraphAlignment.CENTER);
+        hr.getCell(3).getParagraphs().getFirst().setAlignment(ParagraphAlignment.RIGHT);
+        hr.getCell(4).getParagraphs().getFirst().setAlignment(ParagraphAlignment.RIGHT);
+
+        int rowIdx = 1;
+        for (JsonNode sc : scenarios) {
+            String scenario = getTextSafe(sc, "scenario", "");
+            boolean isBase = scenario.toLowerCase().contains("base");
+            String rowBg = isBase ? C_MED_BG : (rowIdx % 2 == 0 ? C_LIGHT_BG : C_WHITE);
+            boolean bold = isBase;
+
+            double varPct = getDoubleNode(sc, "variazione_percentuale", 0);
+            double prezzo = getDoubleNode(sc, "prezzo_eur", 0);
+            double delta  = getDoubleNode(sc, "delta_eur", 0);
+
+            String deltaColor = delta > 0 ? C_RED : (delta < 0 ? C_GREEN : C_DARK_TEXT);
+            String deltaText  = delta == 0 ? "—" : (delta > 0 ? "+€ " : "-€ ") + formatUsd(Math.abs(delta));
+
+            XWPFTableRow row = table.getRow(rowIdx);
+
+            setCellWidth(row.getCell(0), colWidths[0]);
+            setCellBackground(row.getCell(0), rowBg);
+            setCellText(row.getCell(0), scenario, C_DARK_TEXT, 10, true);
+
+            setCellWidth(row.getCell(1), colWidths[1]);
+            setCellBackground(row.getCell(1), rowBg);
+            setCellText(row.getCell(1), getTextSafe(sc, "descrizione", ""), C_DARK_TEXT, 9, false);
+
+            setCellWidth(row.getCell(2), colWidths[2]);
+            setCellBackground(row.getCell(2), rowBg);
+            setCellText(row.getCell(2), String.format(Locale.US, "%+.1f%%", varPct), C_DARK_TEXT, 9, bold);
+            row.getCell(2).getParagraphs().getFirst().setAlignment(ParagraphAlignment.CENTER);
+
+            setCellWidth(row.getCell(3), colWidths[3]);
+            setCellBackground(row.getCell(3), rowBg);
+            setCellText(row.getCell(3), "€ " + formatUsd(prezzo), C_DARK_TEXT, 10, true);
+            row.getCell(3).getParagraphs().getFirst().setAlignment(ParagraphAlignment.RIGHT);
+
+            setCellWidth(row.getCell(4), colWidths[4]);
+            setCellBackground(row.getCell(4), rowBg);
+            setCellText(row.getCell(4), deltaText, deltaColor, 9, true);
+            row.getCell(4).getParagraphs().getFirst().setAlignment(ParagraphAlignment.RIGHT);
+
+            rowIdx++;
+        }
+        addTableBorders(table);
+    }
+
+    // -------------------------------------------------------------------------
+    // Contractual Recommendations
+    // -------------------------------------------------------------------------
+    // Qui un cost estimator senior aggiunge valore reale: clausole, penali,
+    // garanzie, risk allocation. Almeno 3 voci, ognuna con motivazione.
+
+    private void addContractualRecommendations(XWPFDocument doc, JsonNode root) {
+        addHeading1(doc, "8. RACCOMANDAZIONI CONTRATTUALI");
+
+        JsonNode racc = root.path("raccomandazioni_contrattuali");
+        if (!racc.isArray() || racc.isEmpty()) {
+            addBodyText(doc, "Nessuna raccomandazione contrattuale disponibile.");
+            return;
+        }
+
+        addBodyText(doc,
+                "Clausole, penali, garanzie e meccanismi di risk allocation suggeriti per "
+              + "proteggere il margine e gestire le aree di incertezza dello scope.");
+
+        int idx = 1;
+        for (JsonNode r : racc) {
+            String tema   = getTextSafe(r, "tema", "");
+            String reco   = getTextSafe(r, "raccomandazione", "");
+            String motivo = getTextSafe(r, "motivazione", "");
+
+            // Box numerato per ogni raccomandazione
+            XWPFTable box = doc.createTable(1, 1);
+            setTableWidth(box, CONTENT_WIDTH);
+            XWPFTableCell cell = box.getRow(0).getCell(0);
+            setCellBackground(cell, C_LIGHT_BG);
+
+            while (cell.getParagraphs().size() > 1) {
+                cell.removeParagraph(cell.getParagraphs().size() - 1);
+            }
+
+            // Riga 1: numero + tema
+            XWPFParagraph headP = cell.getParagraphs().getFirst();
+            for (int i = headP.getRuns().size() - 1; i >= 0; i--) headP.removeRun(i);
+            XWPFRun numRun = headP.createRun();
+            numRun.setText(idx + ". ");
+            numRun.setBold(true);
+            numRun.setFontSize(11);
+            numRun.setColor(C_ORANGE);
+            numRun.setFontFamily("Calibri");
+            XWPFRun temaRun = headP.createRun();
+            temaRun.setText(tema);
+            temaRun.setBold(true);
+            temaRun.setFontSize(11);
+            temaRun.setColor(C_NAVY);
+            temaRun.setFontFamily("Calibri");
+
+            // Riga 2: raccomandazione
+            if (!reco.isBlank()) {
+                XWPFParagraph recoP = cell.addParagraph();
+                XWPFRun recoR = recoP.createRun();
+                recoR.setText(reco);
+                recoR.setFontSize(10);
+                recoR.setColor(C_DARK_TEXT);
+                recoR.setFontFamily("Calibri");
+            }
+
+            // Riga 3: motivazione (italica)
+            if (!motivo.isBlank()) {
+                XWPFParagraph motivoP = cell.addParagraph();
+                XWPFRun motivoLab = motivoP.createRun();
+                motivoLab.setText("Motivazione: ");
+                motivoLab.setBold(true);
+                motivoLab.setItalic(true);
+                motivoLab.setFontSize(9);
+                motivoLab.setColor(C_GRAY_TEXT);
+                motivoLab.setFontFamily("Calibri");
+                XWPFRun motivoR = motivoP.createRun();
+                motivoR.setText(motivo);
+                motivoR.setItalic(true);
+                motivoR.setFontSize(9);
+                motivoR.setColor(C_GRAY_TEXT);
+                motivoR.setFontFamily("Calibri");
+            }
+
+            addSpacer(doc, 1);
+            idx++;
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Timeline
     // -------------------------------------------------------------------------
 
     private void addTimeline(XWPFDocument doc, JsonNode root) {
-        addHeading1(doc, "6. CRONOPROGRAMMA SINTETICO");
+        addHeading1(doc, "9. CRONOPROGRAMMA SINTETICO");
 
         JsonNode crono = root.path("cronoprogramma_sintetico");
         if (!crono.isArray() || crono.isEmpty()) {
@@ -744,7 +1146,7 @@ public class EstimateReportBuilder {
 
     private void addSearchAppendix(XWPFDocument doc,
                                    Map<String, List<WebSearchService.SearchResult>> searchResults) {
-        addHeading1(doc, "7. APPENDICE — FONTI E RICERCHE DI MERCATO");
+        addHeading1(doc, "10. APPENDICE — FONTI E RICERCHE DI MERCATO");
         addBodyText(doc, "Riepilogo delle fonti di dati di mercato consultate per l'aggiornamento dei prezzi e delle stime.");
         addSpacer(doc, 1);
 

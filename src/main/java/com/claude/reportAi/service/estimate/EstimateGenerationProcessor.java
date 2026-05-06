@@ -3,6 +3,7 @@ package com.claude.reportAi.service.estimate;
 import com.claude.reportAi.entities.Estimate;
 import com.claude.reportAi.exception.JobCancelledException;
 import com.claude.reportAi.repository.EstimateRepository;
+import com.claude.reportAi.service.ExchangeRateService;
 import com.claude.reportAi.service.ModelChatClientFactory;
 import com.claude.reportAi.service.TokenRateLimiter;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -21,6 +22,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -42,132 +44,109 @@ public class EstimateGenerationProcessor {
     private final EstimateReportBuilder estimateReportBuilder;
     private final PdfPageImageExtractor pdfPageImageExtractor;
     private final ObjectMapper objectMapper;
+    private final ExchangeRateService exchangeRateService;
+
+    private static final int TAVILY_CONTENT_MAX_CHARS = 400;
 
     private static final String SYSTEM_PROMPT = """
             RUOLO
-            Sei cost estimator/tendering manager senior, 30 anni esperienza EPC oil & gas onshore (pipeline e impianti). Conosci ingegneria, materiali, costruzione, interfacce civile/meccanico/E&I, rischi, normative, mercato.
-            INPUT: Scope of Work + Schedule + altri documenti tecnici.
-            OUTPUT: JSON valido seguendo lo schema definito nel messaggio utente. Lingua: italiano. Valuta: EUR (converti USD al cambio del giorno).
+            Cost estimator/tendering manager senior, 30 anni esperienza EPC oil & gas onshore (pipeline + impianti).
+            INPUT: Scope of Work + Schedule + documenti tecnici.
+            OUTPUT: JSON valido (schema nel messaggio utente). Lingua italiana. Valuta EUR. Usa il cambio EUR/USD fornito nel messaggio utente per cambio_eur_usd e per convertire benchmark espressi in USD; nessun valore in USD nel JSON finale.
 
-            ═══ FASE 1 - SCOPE CHECK ═══
-            Per ognuna delle 9 voci, assegna stato {INCLUSO|PARZIALE|ESCLUSO|INCERTO}:
+            ═══ FASE 1 — SCOPE CHECK ═══
+            Per ognuna delle 8 voci A-H assegna stato {INCLUSO|PARZIALE|ESCLUSO|INCERTO}:
             A. ENGINEERING (basic/FEED/detail/iso/P&ID)
-            B. PROCUREMENT (line pipe, valvole, equipment, compressori, skid, bulk, cavi, strutture e altri equipment)
+            B. PROCUREMENT (line pipe, valvole, equipment, compressori, skid, bulk, cavi, strutture)
             C. COSTRUZIONE PIPELINE MECCANICA (linea+tie-in+collaudo+FJC)
-            D. COSTRUZIONE PIPELINE CIVILE (scavo+rinterro+ripristini) - se ESCLUSO: rischio standby = critico
-            E. ATTRAVERSAMENTI PIPELINE SPECIALI (HDD/TOC/microtunnel/spingitubo/a cielo aperto)
+            D. COSTRUZIONE PIPELINE CIVILE (scavo+rinterro+ripristini) — se ESCLUSO: rischio standby in rischi_principali con impatto_eur in EUR/gg
+            E. ATTRAVERSAMENTI SPECIALI (HDD/TOC/microtunnel/spingitubo/cielo aperto)
             F. INSTALLAZIONE E&I (cabling, FOC, PC, SCADA)
-            G. COSTRUZIONE STAZIONI BVS/SCRAPER (dimensiona per pollici/m²/m³ cls/peso tubi e strutture)
-            H. COSTRUZIONE STAZIONI COMPRESSION/METERING (dimensiona per pollici/m²/m³ cls/peso tubi e strutture)
-            I. HSE/SECURITY/CAMP
-            Mai chiedere chiarimenti all'utente. Se INCERTO: assumi l'ipotesi più ragionevole, popola "assumptions_taken" con razionale, imposta "estimate_status":"ESTIMATE_WITH_ASSUMPTIONS".
+            G. STAZIONI BVS/SCRAPER (dimensiona per pollici/m²/m³ cls/peso)
+            H. STAZIONI COMPRESSION/METERING (dimensiona per pollici/m²/m³ cls/peso)
+            Mai chiedere chiarimenti. Se INCERTO: assumi l'ipotesi più ragionevole, popola assumptions_taken e imposta estimate_status="ESTIMATE_WITH_ASSUMPTIONS".
 
-            ═══ FASE 2 - GERARCHIA FONTI (vincolante) ═══
+            ═══ FASE 2 — GERARCHIA FONTI (vincolante) ═══
             Priorità: (1) file aziendali → (2) storici aziendali → (3) benchmark mercato → (4) assunzioni standard.
-            File aziendali prevalgono SEMPRE su benchmark, sia per costi sia per rese.
-            Mercato solo per voci scoperte.
+            File aziendali prevalgono SEMPRE su benchmark, sia per costi sia per rese:
+            - Mai sostituire un prezzo interno con un prezzo di mercato
+            - Mai sostituire una resa aziendale con una resa benchmark
+            - Voci parzialmente coperte: dato aziendale come base, integra il mancante con mercato
+            - Se i file aziendali contengono rese per diametro/terreno/tecnica, usa la più pertinente, non una media generica
+            - Per ogni voce benchmark documenta in assunzioni: quale, range, perché applicabile
 
-            ═══ FASE 3 - REGOLE DI CALCOLO ═══
-            • Ammortamento mezzi: pro-rata su settimane di EFFETTIVO utilizzo, non su durata totale progetto
-            • Fattore utilizzo carburante vs picco: 55-65% se spread <700 m/gg | 75-80% se >700 m/gg | 50-60% mezzi yard
-            • Sideboom+paywelder dimensionati per linea + tie-in in parallelo. Riferimento: 1 saldatura 48" tie-in/giorno = 1 paywelder + 1 escavatore + 2 sideboom. Per diametri minori scala proporzionalmente. Se non ci sono tie-in, dimensionare solo per la linea.
+            ═══ FASE 3 — REGOLE DI CALCOLO ═══
+            • Ammortamento mezzi: pro-rata su settimane di EFFETTIVO utilizzo, non su durata totale
+            • Fattore utilizzo carburante: 55-65% se spread <700 m/gg | 75-80% se >700 m/gg | 50-60% mezzi yard
+            • Sideboom+paywelder dimensionati per linea + tie-in in parallelo. Rif 48": 1 saldatura tie-in/gg = 1 paywelder + 1 escavatore + 2 sideboom. Diametri minori: scala proporzionalmente. Senza tie-in: dimensiona solo per la linea
             • Costi diretti SENZA contingency/margini (buffer solo in voce VI)
-            • Quantità solo se documentate. HDD/TOC: 1 ogni 15-25 km se non specificato. Microtunnel: solo se esplicito. Spingitubo (thrust boring): 3 ogni 15 km (media 30 m ad attraversamento)
-            • Durata = lunghezza / (n_spread × resa × gg_lavorativi). Mai gonfiare
+            • Quantità solo se documentate. Senza dato: HDD/TOC 1 ogni 15-25 km, spingitubo 3 ogni 15 km (~30 m/cad). Microtunnel SOLO se esplicito con conci cls. Senza base, non inserire la voce
+            • Durata = lunghezza / (n_spread × resa × gg_lavorativi/mese). Mai gonfiare
+            • analisi_dettaglio: SEMPRE due categorie separate "III.a - Forniture materiali progetto" e "III.b - Subappalti"
+            • Stazioni (BVS, SS, LS, compressione): prima dati aziendali, poi dimensiona per pollici/m²/m³/peso effettivi senza sovrastimare
 
-            ═══ FASE 4 - BENCHMARK (in EUR; convertire USD al cambio del giorno) ═══
-            EPC TOTALE EUR/km per zona/diametro:
-                                            42-48"      24-36"      8-20"
-            Pianura semplice                1,5-3,2M    1,2-2,6M    0,8-1,5M
-            Pianura agricola                1,8-3,5M    ~+15%       ~+10%
-            Collinare                       2,8-4,2M    1,9-3,2M    1,2-2,2M
-            Montuoso EU                     3,5-5,5M
-            Montuoso estremo                5,2-7,2M    3,1-5,5M    1,8-3,0M
-            Artico                          6,4-9,6M
-            Giungla/palude                  5,6-8,0M
+            ═══ FASE 4 — BENCHMARK (EUR; converti USD usando il tasso fornito nel messaggio utente) ═══
+
+            EPC TOTALE EUR/km per zona × diametro (42-48" | 24-36" | 8-20"):
+            Pianura semplice    1,5-3,2M | 1,2-2,6M | 0,8-1,5M
+            Pianura agricola    1,8-3,5M | +15%     | +10%
+            Collinare           2,8-4,2M | 1,9-3,2M | 1,2-2,2M
+            Montuoso EU         3,5-5,5M
+            Montuoso estremo    5,2-7,2M | 3,1-5,5M | 1,8-3,0M
+            Artico              6,4-9,6M
+            Giungla/palude      5,6-8,0M
             EUR/inch-metro 42-48": pianura 40-60 | collinare 60-95 | montuoso 84-148
 
-            Per sola fornitura materiali di progetto consegnati EXW:
-            LINE PIPE X70 (CIF EU, 2025-26): regola di scaling 1,2-1,5 EUR/kg. Verificare coerenza con EUR/m sotto.
-            48"WT22mm: 580-730 EUR/m | 42"WT20mm: 480-620 | 36"WT17mm: 380-520
-            24"WT12mm: 200-280 | 16"WT9mm: 130-190
+            LINE PIPE X70 EXW (CIF EU 2025-26): scaling 1,2-1,5 EUR/kg.
+            48"WT22 580-730 EUR/m | 42"WT20 480-620 | 36"WT17 380-520 | 24"WT12 200-280 | 16"WT9 130-190
 
-            VALVOLE BALL CL600 c/attuatore (EUR/pz):
-            48": 480-720k | 36": 320-480k | 24": 160-250k | 16": 90-150k
+            VALVOLE BALL CL600 c/attuatore (k EUR/pz):
+            48" 480-720 | 36" 320-480 | 24" 160-250 | 16" 90-150
 
-            COMPRESSORE 20-30MW: 25-45 M EUR (fornitura). Regola di scaling: ~1 M EUR per MW solo per il pacchetto compressori. Aggiungere sistemi accessori della centrale di compressione.
+            COMPRESSORE 20-30 MW: 25-45 M EUR (~1 M EUR/MW pkg compressori; aggiungi accessori centrale)
 
-            ATTRAVERSAMENTI EUR/m (riferimento 48", per diametri minori ridurre proporzionalmente; precedenza ai prezzi/rese aziendali):
-            Spingitubo (thrust boring) pianura: 800-1.000
-            HDD (TOC) pianura: 2.500-5.500
-            HDD (TOC) montagna: 5.000-9.000
-            Microtunnel con conci in cls: 10.000-15.000
+            ATTRAVERSAMENTI EUR/m (rif 48", scala per diametri minori; precedenza prezzi aziendali):
+            Spingitubo pianura 800-1.000 | HDD pianura 2.500-5.500 | HDD montagna 5.000-9.000 | Microtunnel cls 10.000-15.000
 
-            NDT (100% RX+AUT H2-ready):
-            Tie-in/manuale: 100-150 EUR/giunto in funzione del diametro
-            Saldatura di linea (RX o AUT): ~2.000 EUR/giorno per spread di saldatura
+            NDT (100% RX+AUT H2-ready): tie-in/manuale 100-150 EUR/giunto | linea ~2.000 EUR/gg/spread
 
-            PROTEZIONE CATODICA (fornitura+installazione): 20-35 k EUR/km
-            FOC+HDPE (fornitura+installazione): 40-65 k EUR/km
-            DEG (Ingegneria di dettaglio): max 2% del totale per progetti grandi, oppure ~75 EUR per ora stimata
-            CAMP BASE 300 pers: 1-3 M EUR (solo se non disponibili hotel/case; precedenza a file aziendali)
-            VITTO: operai rurali EU 40-55 EUR/p/gg | staff hotel 60-90 EUR/p/gg | 26 gg/mese (precedenza file aziendali)
+            PROTEZIONE CATODICA: 20-35 kEUR/km | FOC+HDPE: 40-65 kEUR/km
+            DEG (Eng dettaglio): max 2% totale o ~75 EUR/ora stimata
+            CAMP BASE 300 pers: 1-3 M EUR (se no hotel; precedenza aziendali)
+            VITTO: operai rurali EU 40-55 EUR/p/gg | staff hotel 60-90 EUR/p/gg | 26 gg/mese
             TOTALE V (vitto/alloggio): 2-4% costo totale
 
-            STANDBY (in caso di rischio operativo):
-            • Spread completo fermo: 190-250 kEUR/gg
-            • Spread parziale (solo saldatura): 100-120 kEUR/gg
-            • Camp+indiretti senza posa: 35-55 kEUR/gg
+            STANDBY: spread completo 190-250 kEUR/gg | parziale (saldatura) 100-120 | camp+indiretti 35-55
 
-            SECURITY % costo totale per fascia rischio paese:
-            Basso (EU/NA) 0,5-1% | Medio (LATAM stabile, SE Asia) 1,5-3%
-            Alto (Messico nord, AfricaSubSah, MO) 3-6% | Estremo (zone conflitto) 6-12% + K&R + PV
+            SECURITY (% costo totale):
+            Basso (EU/NA) 0,5-1% | Medio (LATAM stabile, SE Asia) 1,5-3% | Alto (MX nord, AfSubSah, MO) 3-6% | Estremo (conflitto) 6-12% + K&R + PV
 
-            ═══ FASE 5 - STRUTTURA QUADRO ECONOMICO ═══
+            ═══ FASE 5 — QUADRO ECONOMICO ═══
             I. Mob+Temp Facilities | II. Costruzione (mezzi+pers+carburante)
-            III. Subcontratti+Forniture per materiali di progetto (split: Forniture materiali progetto | Subappalti)
+            III. Subcontratti+Forniture (split III.a Forniture | III.b Subappalti)
             IV. Indiretti | V. Vitto/Alloggio
-            Subtotale I-V
-            VI. Contingency+OH+oneri finanziari = 10-15% (tipico 12%) su subtotale I-V ripartito: OH 6% + Contingency 2% + assicurazioni/finanziari 3-5%
-            VII. COSTI TOTALI = (I-V) + VI
+            SUBTOTALE I-V
+            VI. su subtotale I-V: VI.a OH 6% + VI.b Contingency 2% + VI.c Assic/Finanziari 3-5% (totale tipico 12%)
+            VII. COSTO TOTALE = (I-V) + VI
             VIII. PREZZO = VII × (1 + margine 6-10%, tipico 8%)
 
-            ═══ FASE 6 - REPORT NARRATIVO ═══
-            Nei campi narrativi del JSON (executive_summary, note delle voci, assunzioni, rischi):
-            - executive_summary: 3-5 frasi per top management con configurazione progetto, prezzo finale, EUR/km e posizionamento benchmark
-            - Per ogni voce di costo documenta: base dati usata (AZIENDALE/BENCHMARK/ASSUNZIONE), rese applicate, quantità e logica di calcolo
-            - rischi_principali: array prioritizzato con livello ALTO/MEDIO/BASSO e impatto quantificato in EUR
-            - Se civile=ESCLUSO nello scope → inserire rischio standby come priorità massima con impatto in EUR/gg
-            - cronoprogramma_sintetico: fasi coerenti con n_spread × durata × resa
+            ═══ FASE 6 — REPORT NARRATIVO ═══
+            - executive_summary: max 3 frasi per top management (configurazione, prezzo, EUR/km, posizionamento benchmark)
+            - Per ogni voce: documenta fonte_dato (AZIENDALE/BENCHMARK/ASSUNZIONE), rese, quantità, logica di calcolo
+            - rischi_principali: prioritizzati con livello ALTO/MEDIO/BASSO e impatto_eur quantificato in EUR
+            - cronoprogramma_sintetico: coerente con n_spread × durata × resa
+            - sensitivity_analysis: ≥5 scenari (base, pessimistico -15%, ottimistico +10%, cambio ±10%, rese -10%)
+            - raccomandazioni_contrattuali: ≥3 specifiche (clausole, penali, garanzie, risk allocation)
 
-            ═══ FASE 7 - CHECK COERENZA (eseguire prima di chiudere) ═══
-            [ ] Tutte le 9 voci di scope (A-I) valutate e riflesse nel quadro economico
-            [ ] Se civile=ESCLUSO → rischio standby presente con quantificazione
-            [ ] Se engineering=INCLUSO → DEG in voce III con cap 2%
-            [ ] Se procurement=ESCLUSO → no line pipe/valvole in III
-            [ ] Se attraversamenti=SOLO MECCANICA → no HDD/TOC/microtunnel
-            [ ] Σ analitica I-V = subtotale (±2%)
-            [ ] EUR/km finale entro benchmark zona (±25%)
-            [ ] EUR/inch-m finale entro benchmark zona (±25%)
-            [ ] Ripartizione I-V: Mob 3-5% | Costruz 30-40% | Forniture 40-55% | Indir 6-10% | Vitto 4-7%
-            [ ] Contingency UNA volta sola
-            [ ] Margine su costo totale post-contingency
-            [ ] n_spread × durata × resa = lunghezza (±5%)
-            [ ] Personale = staff spread + indiretti
-            [ ] Durata totale ≤ Gantt
-            [ ] No "Varie e imprevisti" >3% per capitolo
-            [ ] Costi e rese da file aziendali quando disponibili
-            [ ] Tutti gli importi in EUR
-            [ ] Sensitivity ≥5 scenari incluso caso base
-            [ ] ≥3 raccomandazioni contrattuali
-            [ ] Fattore utilizzo carburante coerente con resa spread
-            [ ] Ammortamento = settimane utilizzo effettivo
-            [ ] Se ci sono tie-in nello scope → sideboom/paywelder dimensionati per linea + tie-in in parallelo (riferimento 48": 1 paywelder + 1 escavatore + 2 sideboom per saldatura/gg)
-            [ ] Coerenza prezzi line pipe: EUR/m allineato a 1,2-1,5 EUR/kg sul peso del tubo
-            Se anche un check fallisce, correggi prima di emettere.
+            ═══ FASE 7 — CHECK ANTI-SOVRASTIMA E COERENZA (eseguire prima di emettere) ═══
+            SCOPE: scope_check su tutte 8 voci A-H; se civile=ESCLUSO rischio standby in EUR/gg; se engineering=INCLUSO DEG in III cap 2%; se procurement=ESCLUSO no line pipe/valvole in III; se attraversamenti=solo meccanica no HDD/TOC/microtunnel.
+            NUMERICI: Σ analitica I-V = subtotale ±2%; EUR/km finale entro benchmark zona ±25%; EUR/inch-m entro benchmark ±25%; ripartizione I-V (Mob 3-5% | Costruz 30-40% | Forniture 40-55% | Indir 6-10% | Vitto 4-7%); contingency UNA sola volta; margine su costo post-contingency; n_spread × durata × resa = lunghezza ±5%; durata totale ≤ Gantt; no "Varie e imprevisti" >3% per capitolo.
+            ANTI-SOVRASTIMA: prezzi/rese aziendali prevalgono sempre su benchmark; no doppie maggiorazioni (buffer solo in VI); no coefficienti prudenziali impliciti nelle rese; quantità solo se documentate; cap mensile spread non oltre benchmark salvo giustificazione aziendale; line pipe EUR/m coerente con 1,2-1,5 EUR/kg sul peso del tubo; fattore carburante coerente con resa spread; ammortamento = settimane utilizzo effettivo.
+            COMPLETEZZA: assumptions_taken popolato per ogni dato non da file aziendali; sensitivity ≥5 scenari incluso base; raccomandazioni ≥3; tutti importi in EUR.
+            Se un check fallisce, correggi prima di emettere.
 
             ═══ OUTPUT ═══
-            Rispondi ESCLUSIVAMENTE con l'oggetto JSON definito nel messaggio utente (no markdown, no testo extra). Tutti i valori economici in EUR.
+            JSON valido, nessun testo prima/dopo, no markdown. Campi obbligatori: scope_check (8 voci A-H), estimate_status, assumptions_taken, executive_summary, cambio_eur_usd (valore fornito nel messaggio utente), quadro_economico (I-VIII + subtotale; percentuali opzionali), kpi (derivati opzionali/null), benchmark_comparison, analisi_dettaglio (incluso III.a e III.b separati), rischi_principali (con impatto_eur), sensitivity_analysis (≥5), raccomandazioni_contrattuali (≥3), cronoprogramma_sintetico, note_finali.
             """;
 
     @Async("reportGenerationExecutor")
@@ -210,18 +189,15 @@ public class EstimateGenerationProcessor {
 
 
             List<Map.Entry<String, String>> searchCategories = List.of(
-                    Map.entry("COSTI MATERIALI DI PROGETTO",
-                            tipo + " pipeline pipe valves fittings material cost " + paese + " " + currentYear + " " + previousYear + " USD"),
+                    Map.entry("MATERIALI E CONSUMABILI",
+                            tipo + " pipeline pipe valves fittings welding electrodes fuel diesel cement steel "
+                                    + paese + " material cost " + currentYear + " " + previousYear + " USD"),
                     Map.entry("COSTI DI MOBILIZZAZIONE DALL'ITALIA",
                             "heavy equipment mobilization Italy " + paese + " transport logistics cost " + currentYear),
                     Map.entry("BASI LOGISTICHE E ACCOMMODATION",
                             "labor camp accommodation catering oil gas " + paese + " daily rate USD person " + currentYear),
                     Map.entry("COSTI SICUREZZA",
                             "security services requirements oil gas construction " + paese + " cost " + currentYear),
-                    Map.entry("MATERIALI CONSUMABILI",
-                            "welding electrodes fuel diesel lubricants PPE cement steel " + paese + " construction prices " + currentYear),
-                    Map.entry("TASSAZIONE E ONERI FISCALI",
-                            "WHT withholding tax VAT customs duty foreign EPC contractor " + paese + " oil gas " + currentYear),
                     Map.entry("COSTO DELLA MANODOPERA",
                             paese + " pipeline construction worker salary daily rate USD " + currentYear + " local expat")
             );
@@ -246,19 +222,21 @@ public class EstimateGenerationProcessor {
 
             List<byte[]> pageImages = List.of();
             if (ModelChatClientFactory.isAnthropicModel(model) || ModelChatClientFactory.isGeminiModel(model)) {
-                updateProgress(jobId, 67, "Estrazione immagini dal documento");
+                updateProgress(jobId, 67, "Preparazione tavole visuali dal documento");
                 pageImages = pdfPageImageExtractor.extractPageImages(pdfBytes);
                 if (!pageImages.isEmpty()) {
-                    log.info("Invio {} immagini PDF al modello per lettura Gantt/grafici", pageImages.size());
+                    log.info("Invio {} tavole visuali PDF al modello per lettura Gantt/grafici", pageImages.size());
                 }
             }
 
             throwIfCancelled(jobId);
             updateProgress(jobId, 70, "Generazione preventivo con " + model);
-            String userPrompt = buildUserPrompt(info, internalPricing, searchResults, !pageImages.isEmpty());
+            double usdPerEurRate = exchangeRateService.currentUsdPerEur();
+            String userPrompt = buildUserPrompt(info, internalPricing, searchResults, !pageImages.isEmpty(), usdPerEurRate);
 
-            log.info("Prompt inviato al modello: {} caratteri (~{} token stimati) | {} immagini | modello={}",
-                    userPrompt.length(), userPrompt.length() / 3, pageImages.size(), model);
+            log.info("Prompt inviato al modello: {} caratteri (~{} token stimati) | {} immagini | modello={} | cache={}",
+                    userPrompt.length(), userPrompt.length() / 3, pageImages.size(), model,
+                    ModelChatClientFactory.isAnthropicModel(model) ? "SYSTEM_ONLY" : "off");
             log.debug("System prompt:\n{}", SYSTEM_PROMPT);
             log.debug("User prompt completo:\n{}", userPrompt);
 
@@ -352,7 +330,8 @@ public class EstimateGenerationProcessor {
             ProjectInfoExtractor.ProjectInfo info,
             String internalPricing,
             Map<String, List<WebSearchService.SearchResult>> searchResults,
-            boolean hasImages) throws Exception {
+            boolean hasImages,
+            double usdPerEurRate) throws Exception {
 
         // Map.of() supporta max 10 entries — usiamo LinkedHashMap per mantenere l'ordine
         Map<String, Object> projectInfoMap = new LinkedHashMap<>();
@@ -372,6 +351,7 @@ public class EstimateGenerationProcessor {
         String pricingSection = (internalPricing == null || internalPricing.isBlank())
                 ? "Nessun dato interno disponibile. Usa esclusivamente dati di mercato."
                 : internalPricing;
+        String rateText = formatRate(usdPerEurRate);
 
         StringBuilder sb = new StringBuilder();
         sb.append("[INFORMAZIONI PROGETTO ESTRATTE DAL DOCUMENTO]\n");
@@ -380,6 +360,9 @@ public class EstimateGenerationProcessor {
         sb.append("[PREZZI INTERNI AZIENDALI - DA UTILIZZARE CON PRIORITÀ MASSIMA]\n");
         sb.append("I dati sono ordinati dal più recente al più vecchio. In caso di valori contrastanti per la stessa voce di costo, il documento con data di caricamento più recente prevale.\n");
         sb.append(pricingSection).append("\n\n");
+
+        sb.append("[CAMBIO EUR/USD APPLICATO]\n");
+        sb.append("1 EUR = ").append(rateText).append(" USD. Usa questo valore esatto in cambio_eur_usd e per convertire qualsiasi benchmark espresso in USD. Il JSON finale deve restare in EUR.\n\n");
 
         sb.append("[DATI DI MERCATO AGGIORNATI - NAZIONE: ")
                 .append(info.nazione() != null ? info.nazione() : "N/D").append("]\n");
@@ -394,15 +377,16 @@ public class EstimateGenerationProcessor {
                     WebSearchService.SearchResult r = results.get(j);
                     sb.append("[").append(j + 1).append("] ").append(r.title()).append("\n");
                     sb.append(r.url()).append("\n");
-                    sb.append(r.content()).append("\n\n");
+                    String content = r.content() != null ? r.content() : "";
+                    sb.append(truncate(content, TAVILY_CONTENT_MAX_CHARS)).append("\n\n");
                 }
             }
         }
 
         sb.append("[ISTRUZIONI]\n");
         if (hasImages) {
-            sb.append("Sono allegate le immagini delle pagine principali del documento PDF.\n");
-            sb.append("Analizza attentamente eventuali Gantt, cronoprogrammi, schemi tecnici o tabelle nelle immagini.\n");
+            sb.append("Sono allegate tavole visuali composite del documento PDF.\n");
+            sb.append("Ogni tavola puo contenere piu figure o pagine rappresentative: analizza attentamente eventuali Gantt, cronoprogrammi, schemi tecnici o tabelle.\n");
             sb.append("Usa le informazioni visive per ricavare durate delle fasi, sequenze di attività e dati tecnici non presenti nel testo.\n");
         }
         sb.append("Genera un preventivo dettagliato per questo progetto.\n");
@@ -411,15 +395,31 @@ public class EstimateGenerationProcessor {
 
         sb.append("Voce VI.a Overhead (OH): 6% del subtotale I-V. Voce VI.b Contingency: 2% del subtotale I-V. Voce VI.c Costi Finanziari e Assicurazioni: 3-5% del subtotale I-V.\n");
         sb.append("Includi sempre: mobilizzazione, costruzione, subcontratti (Forniture + Subappalti separati), indiretti, vitto/alloggio, OH/contingency/finanziari.\n");
-        sb.append("Tutti gli importi in EUR. Il report deve essere dettagliato e professionale.\n\n");
+        sb.append("Tutti gli importi in EUR. Usa il cambio EUR/USD riportato nella sezione [CAMBIO EUR/USD APPLICATO] per cambio_eur_usd e per convertire qualsiasi benchmark in USD trovato nelle ricerche di mercato.\n");
+        sb.append("Il report deve essere dettagliato e professionale.\n\n");
 
-        sb.append("Restituisci ESCLUSIVAMENTE questo JSON:\n");
+        sb.append("Restituisci ESCLUSIVAMENTE questo JSON (tutti gli importi sono in EUR; le chiavi che terminano in '_usd' contengono comunque valori in EUR per compatibilità con il vecchio schema):\n");
         sb.append("""
                 {
                   "nazione": "...",
                   "tipo_progetto": "...",
-                  "cambio_eur_usd": 1.08,
-                  "executive_summary": "3-5 frasi per top management",
+                  "cambio_eur_usd": __CAMBIO_EUR_USD__,
+                  "estimate_status": "ESTIMATE_DEFINITIVE | ESTIMATE_WITH_ASSUMPTIONS",
+                  "assumptions_taken": [
+                    "Assunzione progettuale 1 con razionale",
+                    "Assunzione progettuale 2 con razionale"
+                  ],
+                  "executive_summary": "max 3 frasi per top management: configurazione progetto, prezzo finale, EUR/km, posizionamento benchmark",
+                  "scope_check": [
+                    {"codice": "A", "voce": "Engineering",                  "stato": "INCLUSO|PARZIALE|ESCLUSO|INCERTO", "note": "..."},
+                    {"codice": "B", "voce": "Procurement",                  "stato": "...", "note": "..."},
+                    {"codice": "C", "voce": "Costruzione pipeline meccanica","stato": "...", "note": "..."},
+                    {"codice": "D", "voce": "Costruzione pipeline civile",  "stato": "...", "note": "..."},
+                    {"codice": "E", "voce": "Attraversamenti speciali",     "stato": "...", "note": "..."},
+                    {"codice": "F", "voce": "Installazione E&I",            "stato": "...", "note": "..."},
+                    {"codice": "G", "voce": "Stazioni BVS/Scraper",         "stato": "...", "note": "..."},
+                    {"codice": "H", "voce": "Stazioni Compression/Metering","stato": "...", "note": "..."}
+                  ],
                   "quadro_economico": [
                     {"voce": "I - Mobilizzazione e Temporary Facilities", "importo_usd": 0, "percentuale": 0.0, "note": "..."},
                     {"voce": "II - Costruzione (mezzi + personale + carburante)", "importo_usd": 0, "percentuale": 0.0, "note": "..."},
@@ -444,6 +444,18 @@ public class EstimateGenerationProcessor {
                     "durata_mesi": 0,
                     "ore_uomo_stimate": 0
                   },
+                  "benchmark_comparison": {
+                    "zona_riferimento": "es. Pianura agricola 42-48\\"",
+                    "eur_km_progetto": 0,
+                    "eur_km_benchmark_min": 0,
+                    "eur_km_benchmark_max": 0,
+                    "eur_km_posizionamento": "BASSO|MEDIO|ALTO|FUORI RANGE",
+                    "eur_inch_metro_progetto": 0,
+                    "eur_inch_metro_benchmark_min": 0,
+                    "eur_inch_metro_benchmark_max": 0,
+                    "eur_inch_metro_posizionamento": "BASSO|MEDIO|ALTO|FUORI RANGE",
+                    "commento": "1-2 frasi che spiegano il posizionamento rispetto al benchmark"
+                  },
                   "analisi_dettaglio": [
                     {
                       "categoria": "Mobilizzazione e Temporary Facilities",
@@ -455,24 +467,43 @@ public class EstimateGenerationProcessor {
                       ],
                       "assunzioni": ["..."],
                       "rischi": ["..."]
+                    },
+                    {
+                      "categoria": "III.a - Forniture materiali progetto",
+                      "importo_usd": 0,
+                      "descrizione": "...",
+                      "voci_principali": [],
+                      "assunzioni": [],
+                      "rischi": []
+                    },
+                    {
+                      "categoria": "III.b - Subappalti",
+                      "importo_usd": 0,
+                      "descrizione": "...",
+                      "voci_principali": [],
+                      "assunzioni": [],
+                      "rischi": []
                     }
                   ],
-                  "imposte_e_oneri": {
-                    "wht_percentuale": "...",
-                    "vat_percentuale": "...",
-                    "customs": "...",
-                    "impatto_stimato_usd": 0,
-                    "note": "..."
-                  },
                   "rischi_principali": [
-                    {"categoria": "...", "descrizione": "...", "impatto": "ALTO|MEDIO|BASSO", "mitigazione": "..."}
+                    {"categoria": "...", "descrizione": "...", "impatto": "ALTO|MEDIO|BASSO", "impatto_eur": 0, "mitigazione": "..."}
+                  ],
+                  "sensitivity_analysis": [
+                    {"scenario": "Base case",          "descrizione": "Caso base secondo ipotesi attuali", "variazione_percentuale": 0.0,  "prezzo_eur": 0, "delta_eur": 0},
+                    {"scenario": "Pessimistico -15%",  "descrizione": "...",                                "variazione_percentuale": -15.0,"prezzo_eur": 0, "delta_eur": 0},
+                    {"scenario": "Ottimistico +10%",   "descrizione": "...",                                "variazione_percentuale": 10.0, "prezzo_eur": 0, "delta_eur": 0},
+                    {"scenario": "Cambio EUR/USD ±10%","descrizione": "...",                                "variazione_percentuale": 10.0, "prezzo_eur": 0, "delta_eur": 0},
+                    {"scenario": "Rese -10%",          "descrizione": "...",                                "variazione_percentuale": -10.0,"prezzo_eur": 0, "delta_eur": 0}
+                  ],
+                  "raccomandazioni_contrattuali": [
+                    {"tema": "Clausole | Penali | Garanzie | Risk Allocation", "raccomandazione": "...", "motivazione": "..."}
                   ],
                   "cronoprogramma_sintetico": [
                     {"fase": "...", "durata": "...", "settimane": "...", "note": "..."}
                   ],
                   "note_finali": "..."
                 }
-                """);
+                """.replace("__CAMBIO_EUR_USD__", rateText));
 
         return sb.toString();
     }
@@ -494,8 +525,9 @@ public class EstimateGenerationProcessor {
     private ChatResponse callModelWithCancellationCheck(UUID jobId, String model,
             String systemPrompt, String userPrompt, int maxTokens, List<byte[]> images) {
 
+        boolean useCache = ModelChatClientFactory.isAnthropicModel(model);
         CompletableFuture<ChatResponse> future = CompletableFuture.supplyAsync(
-                () -> modelFactory.callWithImages(model, systemPrompt, userPrompt, maxTokens, false, images)
+                () -> modelFactory.callWithImages(model, systemPrompt, userPrompt, maxTokens, useCache, images)
         );
 
         long deadlineMs = System.currentTimeMillis() + MODEL_CALL_TIMEOUT_MINUTES * 60_000L;
@@ -572,6 +604,10 @@ public class EstimateGenerationProcessor {
     private String truncate(String s, int maxLen) {
         if (s == null || s.length() <= maxLen) return s;
         return s.substring(0, maxLen - 3) + "...";
+    }
+
+    private static String formatRate(double rate) {
+        return String.format(Locale.US, "%.4f", rate);
     }
 
     private int extractActualTokens(ChatResponse response, int fallback) {

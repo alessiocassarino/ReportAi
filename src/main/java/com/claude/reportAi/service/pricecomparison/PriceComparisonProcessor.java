@@ -146,7 +146,7 @@ public class PriceComparisonProcessor {
                             filename, fullText.length(), imageLimit);
                 }
 
-                // Estrazione immagini per modelli con visione (Anthropic e Gemini)
+                // Estrazione tavole visuali per modelli con visione (Anthropic e Gemini)
                 List<byte[]> images = new ArrayList<>();
                 if (ModelChatClientFactory.isAnthropicModel(model) || ModelChatClientFactory.isGeminiModel(model)) {
                     try {
@@ -155,7 +155,7 @@ public class PriceComparisonProcessor {
                         // così le slide centrali (riepilogo economico, condizioni pagamento)
                         // non vengono mai saltate come avveniva con la strategia "prima + ultime".
                         images = selectRepresentativeImages(allImages, imageLimit);
-                        log.info("Immagini selezionate da {}: {}/{} (distribuzione uniforme{})",
+                        log.info("Tavole visuali selezionate da {}: {}/{} (distribuzione uniforme{})",
                                 filename, images.size(), allImages.size(),
                                 isLowText ? ", fallback visuale attivo" : "");
                     } catch (Exception e) {
@@ -345,8 +345,8 @@ public class PriceComparisonProcessor {
         }
 
         if (hasImages) {
-            sb.append("[NOTA: Sono allegate le immagini delle pagine principali del documento.\n");
-            sb.append("Analizza attentamente cataloghi prodotti, listini prezzi, tabelle tecniche, disegni e schemi.]\n\n");
+            sb.append("[NOTA: Sono allegate tavole visuali composite del documento.\n");
+            sb.append("Ogni tavola puo contenere piu figure o pagine rappresentative: analizza attentamente cataloghi prodotti, listini prezzi, tabelle tecniche, disegni e schemi.]\n\n");
         }
 
         if (!text.isBlank()) {

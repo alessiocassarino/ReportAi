@@ -1,5 +1,6 @@
 package com.claude.reportAi.configuration;
 
+import com.claude.reportAi.observability.TokenUsageLoggingAdvisor;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.cloud.vertexai.VertexAI;
 import io.micrometer.observation.ObservationRegistry;
@@ -14,6 +15,7 @@ import org.springframework.ai.vertexai.gemini.VertexAiGeminiChatModel;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -26,6 +28,7 @@ import java.io.IOException;
 import java.time.Duration;
 
 @Configuration
+@EnableConfigurationProperties(ModelPricingProperties.class)
 public class AiToolConfiguration {
 
     @Bean
@@ -82,8 +85,11 @@ public class AiToolConfiguration {
 
     @Bean
     @Qualifier("anthropicChatClient")
-    ChatClient anthropicChatClient(@Qualifier("anthropicChatModel") ChatModel chatModel) {
-        return ChatClient.builder(chatModel).build();
+    ChatClient anthropicChatClient(@Qualifier("anthropicChatModel") ChatModel chatModel,
+                                   TokenUsageLoggingAdvisor tokenUsageLoggingAdvisor) {
+        return ChatClient.builder(chatModel)
+                .defaultAdvisors(tokenUsageLoggingAdvisor)
+                .build();
     }
 
     /**
@@ -110,8 +116,11 @@ public class AiToolConfiguration {
 
     @Bean
     @Qualifier("geminiChatClient")
-    ChatClient geminiChatClient(VertexAiGeminiChatModel chatModel) {
-        return ChatClient.builder(chatModel).build();
+    ChatClient geminiChatClient(VertexAiGeminiChatModel chatModel,
+                                TokenUsageLoggingAdvisor tokenUsageLoggingAdvisor) {
+        return ChatClient.builder(chatModel)
+                .defaultAdvisors(tokenUsageLoggingAdvisor)
+                .build();
     }
 
 }
