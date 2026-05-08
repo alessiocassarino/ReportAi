@@ -17,7 +17,8 @@ public class ProjectInfoExtractor {
     private final ModelChatClientFactory modelChatClientFactory;
     private final ObjectMapper objectMapper;
 
-    private static final int MAX_TEXT_CHARS = 30_000;
+    private static final int MAX_TEXT_CHARS = 60_000;
+    private static final int TAIL_CHARS     = 15_000;
 
     public record ProjectInfo(
             String nazione,
@@ -49,13 +50,14 @@ public class ProjectInfoExtractor {
             """;
 
     public ProjectInfo extract(String pdfText, String model) {
-        String truncated = pdfText != null && pdfText.length() > MAX_TEXT_CHARS
-                ? pdfText.substring(0, MAX_TEXT_CHARS)
-                : pdfText;
+        String textChunk = buildChunkedText(pdfText);
+        log.debug("ProjectInfoExtractor: testo inviato al modello {} chars (su {} totali)",
+                textChunk.length(), pdfText != null ? pdfText.length() : 0);
 
         String userPrompt = """
                 <task>
                 Extract the following information from the provided technical document and return a JSON object with exactly these fields.
+                The input may contain a HEAD section (beginning of the document) and a TAIL section (final pages). Both sections are relevant.
                 </task>
 
                 <output_format>
@@ -79,6 +81,7 @@ public class ProjectInfoExtractor {
                 - For numeric fields, return numbers without units (e.g., 48 not "48 inches").
                 - For "tipo_progetto", choose exactly one of: PIPELINE, IMPIANTO, or MISTO.
                 - Use null for any field not explicitly stated in the document — do not infer.
+                - If values differ between HEAD and TAIL sections, prefer the more specific/detailed value.
                 </guidelines>
 
                 <example>
@@ -102,7 +105,7 @@ public class ProjectInfoExtractor {
                 <input>
                 %s
                 </input>
-                """.formatted(truncated);
+                """.formatted(textChunk);
 
         try {
             ChatResponse response = modelChatClientFactory.call(model, SYSTEM_PROMPT, userPrompt, 2500, false);
@@ -130,6 +133,22 @@ public class ProjectInfoExtractor {
             log.warn("Impossibile estrarre info progetto dal documento: {}", e.getMessage());
             return new ProjectInfo("N/D", null, null, null, null, null, null, null, null, null, null);
         }
+    }
+
+    /**
+     * Returns up to MAX_TEXT_CHARS from the document head, plus the last TAIL_CHARS
+     * of the document separated by a section marker. This ensures that exclusions,
+     * materials specs, and clarifications — which typically appear in the final pages —
+     * are not silently dropped by a simple head-only truncation.
+     */
+    private String buildChunkedText(String pdfText) {
+        if (pdfText == null) return "";
+        if (pdfText.length() <= MAX_TEXT_CHARS) return pdfText;
+        String head = pdfText.substring(0, MAX_TEXT_CHARS);
+        int tailStart = Math.max(MAX_TEXT_CHARS, pdfText.length() - TAIL_CHARS);
+        if (tailStart >= pdfText.length()) return head;
+        String tail = pdfText.substring(tailStart);
+        return head + "\n\n[=== DOCUMENT TAIL — FINAL SECTIONS ===]\n\n" + tail;
     }
 
     private String getStr(Map<String, Object> map, String key) {

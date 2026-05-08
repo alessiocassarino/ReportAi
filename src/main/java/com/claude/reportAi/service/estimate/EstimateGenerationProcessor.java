@@ -37,6 +37,7 @@ public class EstimateGenerationProcessor {
 
     private final EstimateRepository estimateRepository;
     private final ProjectInfoExtractor projectInfoExtractor;
+    private final ExclusionsExtractor exclusionsExtractor;
     private final InternalPricingRetriever internalPricingRetriever;
     private final WebSearchService webSearchService;
     private final ModelChatClientFactory modelFactory;
@@ -188,6 +189,11 @@ public class EstimateGenerationProcessor {
             log.info("Info estratte: nazione={}, tipo={}, km={}, mesi={}",
                     info.nazione(), info.tipoProgetto(), info.lunghezzaKm(), info.durataMesi());
 
+            // Step 2b – Estrazione esclusioni e battery limits
+            throwIfCancelled(jobId);
+            updateProgress(jobId, 18, "Analisi esclusioni e battery limits");
+            ExclusionsExtractor.ExclusionContext exclusions = exclusionsExtractor.extract(fullText, model);
+
             // Step 3 – Recupero prezzi interni
             updateProgress(jobId, 25, "Recupero prezzi interni aziendali");
             String internalPricing = internalPricingRetriever.retrieveContext(info);
@@ -248,7 +254,7 @@ public class EstimateGenerationProcessor {
             throwIfCancelled(jobId);
             updateProgress(jobId, 70, "Generazione preventivo con " + model);
             double usdPerEurRate = exchangeRateService.currentUsdPerEur();
-            String userPrompt = buildUserPrompt(info, internalPricing, searchResults, !pageImages.isEmpty(), usdPerEurRate);
+            String userPrompt = buildUserPrompt(info, exclusions, internalPricing, searchResults, !pageImages.isEmpty(), usdPerEurRate);
 
             log.info("Prompt inviato al modello: {} caratteri (~{} token stimati) | {} immagini | modello={} | cache={}",
                     userPrompt.length(), userPrompt.length() / 3, pageImages.size(), model,
@@ -344,6 +350,7 @@ public class EstimateGenerationProcessor {
 
     private String buildUserPrompt(
             ProjectInfoExtractor.ProjectInfo info,
+            ExclusionsExtractor.ExclusionContext exclusions,
             String internalPricing,
             Map<String, List<WebSearchService.SearchResult>> searchResults,
             boolean hasImages,
@@ -382,6 +389,8 @@ public class EstimateGenerationProcessor {
         sb.append("<exchange_rate>\n");
         sb.append("1 EUR = ").append(rateText).append(" USD. Use this exact value for cambio_eur_usd and to convert any benchmark expressed in USD. The final JSON must remain in EUR.\n");
         sb.append("</exchange_rate>\n\n");
+
+        sb.append(buildExclusionsSection(exclusions));
 
         sb.append("<market_data country=\"")
                 .append(info.nazione() != null ? info.nazione() : "N/D").append("\">\n");
@@ -533,6 +542,75 @@ public class EstimateGenerationProcessor {
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
+
+    /**
+     * Builds the XML exclusions block injected into the user prompt.
+     * When exclusions are present, they act as hard constraints: the model must not include
+     * these items as base costs in any cost breakdown category (I through V).
+     */
+    private String buildExclusionsSection(ExclusionsExtractor.ExclusionContext exclusions) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("<exclusions_and_battery_limits>\n");
+
+        if (!exclusions.hasAnyExclusion()) {
+            sb.append("<note>No explicit exclusions were identified in the document. Apply standard assumptions.</note>\n");
+            sb.append("</exclusions_and_battery_limits>\n\n");
+            return sb.toString();
+        }
+
+        sb.append("<rule>The following items are EXPLICITLY EXCLUDED from the base Contractor scope. ")
+          .append("Do NOT include them as base costs under any category (I through V). ")
+          .append("If relevant, list them as risks or optional items only.</rule>\n");
+
+        if (exclusions.fuelByClient()) {
+            sb.append("<excluded_item>Fuel for construction and transport equipment — furnished by COMPANY/Client</excluded_item>\n");
+        }
+        if (exclusions.securityExcluded()) {
+            sb.append("<excluded_item>Security, guarding, and escort services — excluded from Contractor scope</excluded_item>\n");
+        }
+        if (exclusions.hddMajorExcluded()) {
+            sb.append("<excluded_item>Major HDD/horizontal directional drilling crossings — excluded or to be quoted separately</excluded_item>\n");
+        }
+        if (exclusions.chemicalInjectionExcluded()) {
+            sb.append("<excluded_item>Chemical injection package — excluded from Contractor scope</excluded_item>\n");
+        }
+        if (exclusions.permitsExcluded()) {
+            sb.append("<excluded_item>Permits, authorizations, and right-of-way — under Client/End User responsibility</excluded_item>\n");
+        }
+        if (exclusions.satFatExcluded()) {
+            sb.append("<excluded_item>SAT/FAT client attendance, operator training, and 2-year spare parts — excluded</excluded_item>\n");
+        }
+        for (String item : exclusions.otherExclusions()) {
+            sb.append("<excluded_item>").append(item).append("</excluded_item>\n");
+        }
+
+        if (!exclusions.clientSuppliedItems().isEmpty()) {
+            sb.append("<client_supplied>\n");
+            for (String item : exclusions.clientSuppliedItems()) {
+                sb.append("  <item>").append(item).append("</item>\n");
+            }
+            sb.append("</client_supplied>\n");
+        }
+
+        if (!exclusions.itemsToQuoteSeparately().isEmpty()) {
+            sb.append("<quote_separately>\n");
+            for (String item : exclusions.itemsToQuoteSeparately()) {
+                sb.append("  <item>").append(item).append("</item>\n");
+            }
+            sb.append("</quote_separately>\n");
+        }
+
+        if (!exclusions.batteryLimits().isEmpty()) {
+            sb.append("<battery_limits>\n");
+            for (String item : exclusions.batteryLimits()) {
+                sb.append("  <item>").append(item).append("</item>\n");
+            }
+            sb.append("</battery_limits>\n");
+        }
+
+        sb.append("</exclusions_and_battery_limits>\n\n");
+        return sb.toString();
+    }
 
     // Timeout massimo per la chiamata al modello: 12 minuti.
     // Se il modello non risponde entro questo limite il job viene marcato FAILED.
