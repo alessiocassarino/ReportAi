@@ -63,37 +63,53 @@ public class PriceComparisonProcessor {
     // ─────────────────────────────────────────────────────────────────
 
     private static final String SYSTEM_EXTRACTION = """
-            Sei un esperto analista di offerte commerciali nel settore oil & gas onshore.
-            Analizza l'offerta di questo fornitore per la fornitura o noleggio di moduli, unità prefabbricate o attrezzature oil & gas.
-            Estrai TUTTE le informazioni rilevanti: prezzi, specifiche tecniche, termini commerciali, garanzie, lead time.
-            Se sono presenti immagini, analizzale attentamente per trovare: cataloghi prodotti, listini prezzi, tabelle tecniche, disegni schematici, specifiche dimensionali.
-            IMPORTANTE — MULTILINGUAL: il documento può essere in qualsiasi lingua (italiano, francese, inglese, arabo, spagnolo, ecc.).
-            Estrai le informazioni INDIPENDENTEMENTE dalla lingua, mappando i concetti nei campi JSON richiesti.
-            Esempi di corrispondenze linguistiche:
-              "Condition de paiement" / "Payment terms" / "Zahlungsbedingungen" → termini_pagamento
-              "Validité de l'offre" / "Offer validity" / "Gültigkeit" → validita_offerta
-              "Avance de démarrage" / "Advance payment" → percentuale anticipo in termini_pagamento
-              "Délai de livraison" / "Lead time" / "Lieferfrist" → lead_time_settimane
-              "Incoterms" → incoterms (uguale in tutte le lingue)
-              "Lieu de livraison" / "Delivery place" → luogo_consegna
-              "Le montant de notre offre est de" / "The total amount of our offer is" → totale in riepilogo_economico
-            IMPORTANTE — PREZZI SCRITTI IN LETTERE: se il prezzo è espresso per esteso in parole (es. francese: \
-            "soixante seize millions six cent quatre vingt quinze mille cent dix sept francs CFA" = 76.695.117 XOF), \
-            convertilo in valore numerico nel campo "totale" e includi la valuta originale.
-            Includi nel campo "note_prezzo" anche la formulazione originale in lettere per tracciabilità.
-            Valute africane: "francs CFA" / "FCFA" / "XOF" → usa "XOF (FCFA)" come valuta nel JSON.
-            Cerca prezzi scritti in lettere anche nelle immagini delle slide, non solo nel testo.
-            Rispondi ESCLUSIVAMENTE con un oggetto JSON valido. Nessun markdown, nessun testo aggiuntivo prima o dopo.
+            <role>
+            You are an expert commercial offer analyst in the oil & gas onshore sector.
+            Your task is to analyze a supplier's offer for the supply or rental of modules, prefabricated units, or oil & gas equipment.
+            </role>
+
+            <guidelines>
+            - Extract ALL relevant information: prices, technical specifications, commercial terms, warranties, lead times.
+            - If images are present, analyze them carefully for: product catalogs, price lists, technical tables, schematic drawings, dimensional specifications.
+            - The document may be in any language (Italian, French, English, Arabic, Spanish, etc.). Extract information REGARDLESS of language, mapping concepts to the required JSON fields.
+            - Respond ONLY with a valid JSON object. No markdown, no additional text before or after.
+            - Respond in Italian for field names; preserve original values for proper nouns and technical terms.
+            </guidelines>
+
+            <multilingual_mappings>
+            - "Condition de paiement" / "Payment terms" / "Zahlungsbedingungen" → termini_pagamento
+            - "Validité de l'offre" / "Offer validity" / "Gültigkeit" → validita_offerta
+            - "Avance de démarrage" / "Advance payment" → percentuale anticipo in termini_pagamento
+            - "Délai de livraison" / "Lead time" / "Lieferfrist" → lead_time_settimane
+            - "Incoterms" → incoterms (same in all languages)
+            - "Lieu de livraison" / "Delivery place" → luogo_consegna
+            - "Le montant de notre offre est de" / "The total amount of our offer is" → totale in riepilogo_economico
+            </multilingual_mappings>
+
+            <price_in_words_rule>
+            If the price is expressed in words (e.g., French: "soixante seize millions six cent quatre vingt quinze mille cent dix sept francs CFA" = 76,695,117 XOF), \
+            convert it to a numeric value in the "totale" field and include the original currency.
+            Include in "note_prezzo" the original written-out form for traceability.
+            African currencies: "francs CFA" / "FCFA" / "XOF" → use "XOF (FCFA)" as currency in JSON.
+            Look for prices written in words also in slide images, not just in the text.
+            </price_in_words_rule>
             """;
 
     private static final String SYSTEM_COMPARISON = """
-            Sei un responsabile acquisti senior con 20+ anni di esperienza nel settore oil & gas onshore/offshore.
-            Il tuo cliente deve selezionare il miglior fornitore per la fornitura o noleggio di moduli oil & gas.
-            Devi preparare una valutazione professionale, oggettiva e dettagliata per supportare la decisione finale.
-            Valuta: prezzo, qualità tecnica, lead time, termini commerciali, affidabilità del fornitore, rischi.
-            Assegna punteggi ponderati (0-100) per ogni criterio. Sii rigoroso e imparziale.
-            La raccomandazione deve essere chiara, motivata e orientata all'interesse del cliente.
-            Rispondi ESCLUSIVAMENTE con un oggetto JSON valido. Nessun markdown. Lingua: italiano.
+            <role>
+            You are a senior procurement manager with 20+ years of experience in the onshore/offshore oil & gas sector.
+            Your client needs to select the best supplier for the supply or rental of oil & gas modules.
+            Your task is to prepare a professional, objective, and detailed evaluation to support the final decision.
+            </role>
+
+            <guidelines>
+            - Evaluate: price, technical quality, lead time, commercial terms, supplier reliability, and risks.
+            - Assign weighted scores (0-100) for each criterion. Be rigorous and impartial.
+            - The recommendation must be clear, well-motivated, and oriented toward the client's best interest.
+            - Respond ONLY with a valid JSON object. No markdown.
+            - Respond in Italian.
+            - The "note" field in tabella_comparativa MUST contain specific evidence extracted from the documents — never leave it empty.
+            </guidelines>
             """;
 
     // ─────────────────────────────────────────────────────────────────
@@ -332,32 +348,59 @@ public class PriceComparisonProcessor {
 
     private String buildExtractionPrompt(String filename, String text, boolean hasImages) {
         StringBuilder sb = new StringBuilder();
-        sb.append("File documento: ").append(filename).append("\n\n");
+        sb.append("<document_file>").append(filename).append("</document_file>\n\n");
 
         // Avviso esplicito per documenti originati da presentazioni PowerPoint:
         // questi PDF hanno spesso testo scarso o assente perché le slide vengono
         // renderizzate graficamente — in tal caso l'analisi visiva è quella primaria.
         if (filename.toLowerCase().contains("pptx")) {
-            sb.append("[NOTA IMPORTANTE: Questo documento è stato generato da una presentazione PowerPoint.\n");
-            sb.append("Il testo potrebbe essere parziale o assente perché le slide sono renderizzate graficamente.\n");
-            sb.append("Affidati principalmente alle IMMAGINI ALLEGATE per estrarre tutte le informazioni,\n");
-            sb.append("inclusi prezzi totali, condizioni di pagamento, validità offerta e termini commerciali.]\n\n");
+            sb.append("<important_note>\n");
+            sb.append("This document was generated from a PowerPoint presentation.\n");
+            sb.append("Text may be partial or absent because slides are rendered graphically.\n");
+            sb.append("Rely primarily on the ATTACHED IMAGES to extract all information,\n");
+            sb.append("including total prices, payment conditions, offer validity, and commercial terms.\n");
+            sb.append("</important_note>\n\n");
         }
 
         if (hasImages) {
-            sb.append("[NOTA: Sono allegate tavole visuali composite del documento.\n");
-            sb.append("Ogni tavola puo contenere piu figure o pagine rappresentative: analizza attentamente cataloghi prodotti, listini prezzi, tabelle tecniche, disegni e schemi.]\n\n");
+            sb.append("<visual_note>\n");
+            sb.append("Attached composite visual tables from the document are included.\n");
+            sb.append("Each table may contain multiple representative figures or pages: carefully analyze product catalogs, price lists, technical tables, drawings, and diagrams.\n");
+            sb.append("</visual_note>\n\n");
         }
 
         if (!text.isBlank()) {
-            sb.append("[TESTO ESTRATTO DAL DOCUMENTO]\n");
-            sb.append(text).append("\n\n");
+            sb.append("<extracted_text>\n");
+            sb.append(text).append("\n");
+            sb.append("</extracted_text>\n\n");
         } else {
-            sb.append("[Il documento non contiene testo estraibile. Analizza le immagini allegate.]\n\n");
+            sb.append("<extracted_text>The document contains no extractable text. Analyze the attached images.</extracted_text>\n\n");
         }
 
         sb.append("""
-                Estrai TUTTE le informazioni rilevanti dell'offerta in questo formato JSON:
+                <task>
+                Extract ALL relevant information from this offer in the following JSON format.
+                </task>
+
+                <guidelines>
+                - Extract every price, technical specification, commercial term, warranty, and lead time found.
+                - For numeric values, use numbers without units in the dedicated fields.
+                - If a field is not present in the document, use null — do not fabricate data.
+                - Respond in Italian for field descriptions; preserve original values for amounts and proper nouns.
+                </guidelines>
+
+                <example>
+                Input excerpt: "Offer ref. OFF-2025-001, total price EUR 245,000, payment 30% advance + 70% on delivery, lead time 8 weeks, validity 60 days."
+                Output excerpt:
+                {
+                  "nome_fornitore": "Supplier Name",
+                  "riferimento_offerta": "OFF-2025-001",
+                  "riepilogo_economico": {"totale": "245,000", "valuta": "EUR"},
+                  "termini_commerciali": {"termini_pagamento": "30% anticipo + 70% consegna", "validita_offerta": "60 giorni", "lead_time_settimane": "8"}
+                }
+                </example>
+
+                <output_format>
                 {
                   "nome_fornitore": "...",
                   "riferimento_offerta": "...",
@@ -409,13 +452,19 @@ public class PriceComparisonProcessor {
                   "limitazioni_esclusioni": ["...", "..."],
                   "note_importanti": "..."
                 }
+                </output_format>
                 """);
         return sb.toString();
     }
 
     private String buildComparisonPrompt(List<String> supplierJsons, List<String> filenames) {
         StringBuilder sb = new StringBuilder();
-        sb.append("[DATI STRUTTURATI ESTRATTI DALLE OFFERTE]\n\n");
+        sb.append("<task>\n");
+        sb.append("Compare the following supplier offers and produce a structured evaluation report in Italian.\n");
+        sb.append("</task>\n\n");
+
+        sb.append("<input>\n");
+        sb.append("<structured_offer_data>\n\n");
 
         for (int i = 0; i < supplierJsons.size(); i++) {
             sb.append("=== FORNITORE ").append(i + 1)
@@ -423,31 +472,40 @@ public class PriceComparisonProcessor {
             sb.append(supplierJsons.get(i)).append("\n\n");
         }
 
-        sb.append("[STEP 1 — IDENTIFICAZIONE FORNITORI UNICI — OBBLIGATORIO]\n");
-        sb.append("Hai ricevuto ").append(supplierJsons.size())
-          .append(" JSON estratti da altrettanti file.\n");
-        sb.append("I file potrebbero contenere documenti MULTIPLI dello STESSO fornitore\n");
-        sb.append("(es. offerta economica + specifiche tecniche + listino prezzi della stessa azienda).\n");
-        sb.append("Prima di confrontare: leggi il campo 'nome_fornitore' di ogni JSON e raggruppa per azienda.\n");
-        sb.append("Se più JSON appartengono alla stessa azienda, UNISCI i dati (scegli i valori più completi).\n");
-        sb.append("Imposta 'numero_fornitori' al numero di fornitori UNICI (può essere < numero di file).\n\n");
+        sb.append("</structured_offer_data>\n");
+        sb.append("</input>\n\n");
 
-        sb.append("[STEP 2 — CONFRONTO]\n");
-        sb.append("Confronta i fornitori UNICI identificati in modo rigoroso.\n");
-        sb.append("Per ogni criterio assegna un punteggio da 0 a 100 (100 = il migliore).\n");
-        sb.append("Calcola i punteggi ponderati e il totale per ciascun fornitore unico.\n");
-        sb.append("La raccomandazione finale deve essere chiara e motivata con dati concreti.\n\n");
+        sb.append("<steps>\n");
+        sb.append("<step id=\"1\" name=\"IDENTIFY UNIQUE SUPPLIERS (mandatory)\">\n");
+        sb.append("You have received ").append(supplierJsons.size())
+          .append(" JSON objects extracted from the same number of files.\n");
+        sb.append("Files may contain MULTIPLE documents from the SAME supplier\n");
+        sb.append("(e.g., commercial offer + technical specs + price list from the same company).\n");
+        sb.append("Before comparing: read the 'nome_fornitore' field of each JSON and group by company.\n");
+        sb.append("If multiple JSONs belong to the same company, MERGE the data (choose the most complete values).\n");
+        sb.append("Set 'numero_fornitori' to the number of UNIQUE suppliers (may be < number of files).\n");
+        sb.append("</step>\n\n");
 
-        sb.append("[STEP 3 — CAMPO 'note' OBBLIGATORIO PER OGNI CELLA]\n");
-        sb.append("Il campo 'note' in tabella_comparativa DEVE contenere evidenze specifiche estratte dai documenti:\n");
-        sb.append("• Prezzo / Lead Time: fonte del dato (pagina/sezione), valuta originale, cambio applicato.\n");
-        sb.append("• Qualità Tecnica: standard dichiarati (API, ASME, ISO...), certificazioni, materiali, classe pressione.\n");
-        sb.append("• Termini Commerciali: termini pagamento esatti, Incoterms, validità offerta, penali, luogo consegna.\n");
-        sb.append("• Referenze: clienti oil&gas nominati, anni di attività, referenze documentate, certificazioni aziendali.\n");
-        sb.append("Un campo 'note' vuoto o con solo il numero del punteggio NON è accettabile.\n\n");
+        sb.append("<step id=\"2\" name=\"COMPARE UNIQUE SUPPLIERS\">\n");
+        sb.append("Compare the unique suppliers identified in Step 1 rigorously.\n");
+        sb.append("For each criterion, assign a score from 0 to 100 (100 = best).\n");
+        sb.append("Calculate weighted scores and the total for each unique supplier.\n");
+        sb.append("The final recommendation must be clear and supported by concrete data.\n");
+        sb.append("</step>\n\n");
+
+        sb.append("<step id=\"3\" name=\"POPULATE 'note' FIELD FOR EVERY CELL (mandatory)\">\n");
+        sb.append("The 'note' field in tabella_comparativa MUST contain specific evidence extracted from the documents:\n");
+        sb.append("• Prezzo / Lead Time: data source (page/section), original currency, conversion applied.\n");
+        sb.append("• Qualità Tecnica: declared standards (API, ASME, ISO...), certifications, materials, pressure class.\n");
+        sb.append("• Termini Commerciali: exact payment terms, Incoterms, offer validity, penalties, delivery location.\n");
+        sb.append("• Referenze: named oil&gas clients, years of activity, documented references, company certifications.\n");
+        sb.append("An empty 'note' field or one containing only the score number is NOT acceptable.\n");
+        sb.append("</step>\n");
+        sb.append("</steps>\n\n");
 
         sb.append("""
-                Restituisci ESCLUSIVAMENTE questo JSON (senza markdown):
+                <output_format>
+                Return ONLY the following JSON (no markdown):
                 {
                   "titolo_progetto": "Valutazione Fornitori — Confronto Offerte Moduli Oil & Gas",
                   "data_valutazione": "GG/MM/AAAA",
@@ -537,6 +595,7 @@ public class PriceComparisonProcessor {
                   },
                   "note_finali": "..."
                 }
+                </output_format>
                 """);
         return sb.toString();
     }

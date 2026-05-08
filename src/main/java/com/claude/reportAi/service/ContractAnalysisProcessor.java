@@ -42,21 +42,33 @@ public class ContractAnalysisProcessor {
     // -----------------------------------------------------------------------
 
     private static final String SECTION_SYSTEM_PROMPT = """
-            Sei un contract manager senior con oltre 30 anni di esperienza internazionale in Oil & Gas.
-            Il tuo compito è analizzare sezioni di contratti commerciali e identificare rischi per il Contractor.
+            <role>
+            You are a senior contract manager with over 30 years of international experience in Oil & Gas.
+            Your task is to analyze sections of commercial contracts and identify risks for the Contractor.
+            </role>
 
-            Regole obbligatorie:
-            - Ragiona SEMPRE nell'interesse del Contractor, non essere neutrale.
-            - Rispondi ESCLUSIVAMENTE con un oggetto JSON valido, senza markdown, senza testo prima o dopo.
-            - Se la sezione non contiene clausole rilevanti, restituisci un JSON con "rischi": [].
-            - Sii diretto, concreto, professionale.
+            <guidelines>
+            - ALWAYS reason in the Contractor's interest — do not be neutral.
+            - Respond ONLY with a valid JSON object, no markdown, no text before or after.
+            - If the section contains no relevant clauses, return a JSON with "rischi": [].
+            - Be direct, concrete, and professional.
+            - All output must be in Italian.
+            </guidelines>
             """;
 
     private static final String SYNTHESIS_SYSTEM_PROMPT = """
-            Sei un contract manager senior con oltre 30 anni di esperienza internazionale in Oil & Gas.
-            Sintetizzi analisi contrattuali in un unico JSON strutturato, in italiano, per la generazione di report executive.
-            Rispondi ESCLUSIVAMENTE con un oggetto JSON valido, senza markdown, senza testo prima o dopo.
-            Usa un linguaggio diretto, autorevole e non neutrale: stai difendendo gli interessi del Contractor.
+            <role>
+            You are a senior contract manager with over 30 years of international experience in Oil & Gas.
+            You synthesize contractual analyses into a single structured JSON for executive report generation.
+            </role>
+
+            <guidelines>
+            - Respond ONLY with a valid JSON object, no markdown, no text before or after.
+            - Use direct, authoritative, non-neutral language: you are defending the Contractor's interests.
+            - All output must be in Italian.
+            - Prioritize the most critical risks and actionable recommendations.
+            - executive_summary must be written for C-level audience, 3-5 sentences maximum.
+            </guidelines>
             """;
 
     // -----------------------------------------------------------------------
@@ -180,15 +192,26 @@ public class ContractAnalysisProcessor {
 
     private String buildSectionUserPrompt(ContractSection section) {
         return """
-                Analizza la seguente sezione del contratto dal punto di vista del Contractor.
+                <task>
+                Analyze the following contract section from the Contractor's perspective and identify all risks.
+                </task>
 
-                Sezione: %s
+                <steps>
+                1. Read the section and identify every clause with potential risk for the Contractor.
+                2. For each risk, assess severity (ALTO/MEDIO/BASSO) based on financial and legal impact.
+                3. Identify missing protective clauses that should be present but are absent.
+                4. Write a concise 1-2 sentence summary of the section's overall risk profile.
+                5. Return the result as a valid JSON object in Italian.
+                </steps>
 
-                ---
+                <input>
+                <section_title>%s</section_title>
+                <section_content>
                 %s
-                ---
+                </section_content>
+                </input>
 
-                Rispondi con questo JSON (nessun testo aggiuntivo):
+                <output_format>
                 {
                   "sezione": "<titolo della sezione>",
                   "rischi": [
@@ -196,12 +219,40 @@ public class ContractAnalysisProcessor {
                       "clausola": "<riferimento clausola, es. 5.3>",
                       "descrizione": "<descrizione del rischio per il Contractor>",
                       "livello": "ALTO|MEDIO|BASSO",
-                      "raccomandazione": "<proposta di modifica o tutela>"
+                      "raccomandazione": "<proposta di modifica o tutela specifica>"
                     }
                   ],
                   "clausole_mancanti": ["<clausola assente ma necessaria>"],
                   "sommario": "<sintesi in 1-2 frasi>"
                 }
+                </output_format>
+
+                <guidelines>
+                - Return ONLY the JSON object, no additional text.
+                - All output in Italian.
+                - livello ALTO: high financial or legal exposure for the Contractor.
+                - livello MEDIO: moderate impact, manageable with negotiation.
+                - livello BASSO: minor risk, low financial impact.
+                - raccomandazione must be specific and actionable, not generic advice.
+                </guidelines>
+
+                <example>
+                Input: "5 - Penali e Liquidated Damages — La penale per ritardo è pari all'1%% del valore contrattuale per ogni settimana di ritardo, senza limite massimo."
+                Output:
+                {
+                  "sezione": "5 - Penali e Liquidated Damages",
+                  "rischi": [
+                    {
+                      "clausola": "5.1",
+                      "descrizione": "Penale settimanale dell'1%% senza cap: esposizione illimitata per il Contractor in caso di ritardi prolungati.",
+                      "livello": "ALTO",
+                      "raccomandazione": "Introdurre cap massimo al 10%% del valore contrattuale e clausola di proroga automatica per forza maggiore documentata."
+                    }
+                  ],
+                  "clausole_mancanti": ["Cap sulle penali totali", "Definizione di forza maggiore"],
+                  "sommario": "Sezione ad alto rischio: l'assenza di un cap sulle penali espone il Contractor a passività potenzialmente superiori al margine di progetto."
+                }
+                </example>
                 """.formatted(section.title(), section.content());
     }
 
@@ -275,13 +326,29 @@ public class ContractAnalysisProcessor {
 
     private String buildSynthesisPrompt(String context, String originalFilename) {
         return """
-                Hai analizzato sezione per sezione il contratto "%s".
-                Di seguito trovi i risultati JSON di ogni sezione analizzata.
+                <task>
+                You have analyzed the contract "%s" section by section.
+                Synthesize all section results into a single comprehensive risk assessment JSON for executive reporting.
+                </task>
 
-                [RISULTATI ANALISI PER SEZIONE]
+                <steps>
+                1. Review all section analysis results provided in the input below.
+                2. Identify the top 5 most critical risks across all sections.
+                3. Build the risk matrix ordered by severity (ALTO → MEDIO → BASSO).
+                4. Determine the overall contract assessment: SFAVOREVOLE, EQUILIBRATO, or FAVOREVOLE.
+                5. Formulate the final recommendation: FIRMARE, NEGOZIARE, or RIFIUTARE.
+                6. Draft a 3-5 sentence executive summary for board-level presentation in Italian.
+                7. Select the top 5 most critical clauses to renegotiate and propose alternative text.
+                8. Return the complete structured JSON.
+                </steps>
+
+                <input>
+                <section_analysis_results>
                 %s
+                </section_analysis_results>
+                </input>
 
-                Restituisci un unico oggetto JSON con questa struttura esatta (nessun testo prima o dopo):
+                <output_format>
                 {
                   "valutazione_complessiva": "SFAVOREVOLE|EQUILIBRATO|FAVOREVOLE",
                   "raccomandazione_finale": "FIRMARE|NEGOZIARE|RIFIUTARE",
@@ -307,12 +374,16 @@ public class ContractAnalysisProcessor {
                   ],
                   "clausole_mancanti_globali": [""]
                 }
+                </output_format>
 
-                Regole:
-                - matrice_rischi ordinata per livello decrescente (ALTO → MEDIO → BASSO)
-                - rischi_critici: massimo 5 rischi, solo i più gravi
-                - top5_clausole: le 5 clausole più critiche da rinegoziare con testo alternativo proposto
-                - Lingua: italiano
+                <guidelines>
+                - Return ONLY the JSON object, no additional text.
+                - All output in Italian.
+                - matrice_rischi: ordered by severity descending (ALTO → MEDIO → BASSO).
+                - rischi_critici: maximum 5 risks, only the most severe ones.
+                - top5_clausole: the 5 most critical clauses to renegotiate with specific proposed alternative text.
+                - executive_summary: direct, non-neutral tone defending the Contractor's interests.
+                </guidelines>
                 """.formatted(originalFilename, context);
     }
 

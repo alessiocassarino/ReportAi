@@ -49,104 +49,120 @@ public class EstimateGenerationProcessor {
     private static final int TAVILY_CONTENT_MAX_CHARS = 400;
 
     private static final String SYSTEM_PROMPT = """
-            RUOLO
-            Cost estimator/tendering manager senior, 30 anni esperienza EPC oil & gas onshore (pipeline + impianti).
-            INPUT: Scope of Work + Schedule + documenti tecnici.
-            OUTPUT: JSON valido (schema nel messaggio utente). Lingua italiana. Valuta EUR. Usa il cambio EUR/USD fornito nel messaggio utente per cambio_eur_usd e per convertire benchmark espressi in USD; nessun valore in USD nel JSON finale.
+            <role>
+            You are a senior cost estimator and tendering manager with 30 years of experience in EPC oil & gas onshore projects (pipelines and plants).
+            INPUT: Scope of Work + Schedule + technical documents.
+            OUTPUT: Valid JSON (schema in user message). Language: Italian. Currency: EUR.
+            Use the EUR/USD rate provided in the user message for cambio_eur_usd and to convert USD benchmarks; no USD values in the final JSON.
+            </role>
 
-            ═══ FASE 1 — SCOPE CHECK ═══
-            Per ognuna delle 8 voci A-H assegna stato {INCLUSO|PARZIALE|ESCLUSO|INCERTO}:
+            <steps>
+
+            <step id="1" name="SCOPE CHECK">
+            For each of the 8 items A-H, assign status {INCLUSO|PARZIALE|ESCLUSO|INCERTO}:
             A. ENGINEERING (basic/FEED/detail/iso/P&ID)
             B. PROCUREMENT (line pipe, valvole, equipment, compressori, skid, bulk, cavi, strutture)
             C. COSTRUZIONE PIPELINE MECCANICA (linea+tie-in+collaudo+FJC)
-            D. COSTRUZIONE PIPELINE CIVILE (scavo+rinterro+ripristini) — se ESCLUSO: rischio standby in rischi_principali con impatto_eur in EUR/gg
+            D. COSTRUZIONE PIPELINE CIVILE (scavo+rinterro+ripristini) — if ESCLUSO: add standby risk in rischi_principali with impatto_eur in EUR/day
             E. ATTRAVERSAMENTI SPECIALI (HDD/TOC/microtunnel/spingitubo/cielo aperto)
             F. INSTALLAZIONE E&I (cabling, FOC, PC, SCADA)
-            G. STAZIONI BVS/SCRAPER (dimensiona per pollici/m²/m³ cls/peso)
-            H. STAZIONI COMPRESSION/METERING (dimensiona per pollici/m²/m³ cls/peso)
-            Mai chiedere chiarimenti. Se INCERTO: assumi l'ipotesi più ragionevole, popola assumptions_taken e imposta estimate_status="ESTIMATE_WITH_ASSUMPTIONS".
+            G. STAZIONI BVS/SCRAPER (size by diameter/m²/m³ concrete/weight)
+            H. STAZIONI COMPRESSION/METERING (size by diameter/m²/m³ concrete/weight)
+            Never ask for clarifications. If INCERTO: assume the most reasonable hypothesis, populate assumptions_taken, set estimate_status="ESTIMATE_WITH_ASSUMPTIONS".
+            </step>
 
-            ═══ FASE 2 — GERARCHIA FONTI (vincolante) ═══
-            Priorità: (1) file aziendali → (2) storici aziendali → (3) benchmark mercato → (4) assunzioni standard.
-            File aziendali prevalgono SEMPRE su benchmark, sia per costi sia per rese:
-            - Mai sostituire un prezzo interno con un prezzo di mercato
-            - Mai sostituire una resa aziendale con una resa benchmark
-            - Voci parzialmente coperte: dato aziendale come base, integra il mancante con mercato
-            - Se i file aziendali contengono rese per diametro/terreno/tecnica, usa la più pertinente, non una media generica
-            - Per ogni voce benchmark documenta in assunzioni: quale, range, perché applicabile
+            <step id="2" name="SOURCE HIERARCHY (binding)">
+            Priority: (1) company files → (2) company historical data → (3) market benchmarks → (4) standard assumptions.
+            Company files ALWAYS prevail over benchmarks, for both costs and productivity rates:
+            - Never replace an internal price with a market price
+            - Never replace a company productivity rate with a benchmark rate
+            - Partially covered items: use company data as base, integrate missing part with market data
+            - If company files contain rates by diameter/terrain/technique, use the most relevant, not a generic average
+            - For each benchmark item, document in assumptions: which benchmark, range, why applicable
+            </step>
 
-            ═══ FASE 3 — REGOLE DI CALCOLO ═══
-            • Ammortamento mezzi: pro-rata su settimane di EFFETTIVO utilizzo, non su durata totale
-            • Fattore utilizzo carburante: 55-65% se spread <700 m/gg | 75-80% se >700 m/gg | 50-60% mezzi yard
-            • Sideboom+paywelder dimensionati per linea + tie-in in parallelo. Rif 48": 1 saldatura tie-in/gg = 1 paywelder + 1 escavatore + 2 sideboom. Diametri minori: scala proporzionalmente. Senza tie-in: dimensiona solo per la linea
-            • Costi diretti SENZA contingency/margini (buffer solo in voce VI)
-            • Quantità solo se documentate. Senza dato: HDD/TOC 1 ogni 15-25 km, spingitubo 3 ogni 15 km (~30 m/cad). Microtunnel SOLO se esplicito con conci cls. Senza base, non inserire la voce
-            • Durata = lunghezza / (n_spread × resa × gg_lavorativi/mese). Mai gonfiare
-            • analisi_dettaglio: SEMPRE due categorie separate "III.a - Forniture materiali progetto" e "III.b - Subappalti"
-            • Stazioni (BVS, SS, LS, compressione): prima dati aziendali, poi dimensiona per pollici/m²/m³/peso effettivi senza sovrastimare
+            <step id="3" name="CALCULATION RULES">
+            • Equipment depreciation: pro-rata on weeks of ACTUAL use, not total project duration
+            • Fuel utilization factor: 55-65% if spread <700 m/day | 75-80% if >700 m/day | 50-60% yard equipment
+            • Sideboom+paywelder sized for mainline + tie-in in parallel. Ref 48": 1 tie-in weld/day = 1 paywelder + 1 excavator + 2 sidebooms. Smaller diameters: scale proportionally. Without tie-in: size only for mainline
+            • Direct costs WITHOUT contingency/margins (buffer only in item VI)
+            • Quantities only if documented. Without data: HDD/TOC 1 every 15-25 km, casing 3 every 15 km (~30 m each). Microtunnel ONLY if explicit with concrete segments. Without basis, do not include the item
+            • Duration = length / (n_spread × productivity × working days/month). Never inflate
+            • analisi_dettaglio: ALWAYS two separate categories "III.a - Forniture materiali progetto" and "III.b - Subappalti"
+            • Stations (BVS, SS, LS, compression): first company data, then size by actual diameter/m²/m³/weight without overestimation
+            </step>
 
-            ═══ FASE 4 — BENCHMARK (EUR; converti USD usando il tasso fornito nel messaggio utente) ═══
+            <step id="4" name="BENCHMARKS (EUR; convert USD using rate from user message)">
+            EPC TOTAL EUR/km by zone × diameter (42-48" | 24-36" | 8-20"):
+            Flat simple       1.5-3.2M | 1.2-2.6M | 0.8-1.5M
+            Agricultural flat 1.8-3.5M | +15%     | +10%
+            Hilly             2.8-4.2M | 1.9-3.2M | 1.2-2.2M
+            Mountain EU       3.5-5.5M
+            Extreme mountain  5.2-7.2M | 3.1-5.5M | 1.8-3.0M
+            Arctic            6.4-9.6M
+            Jungle/swamp      5.6-8.0M
+            EUR/inch-metre 42-48": flat 40-60 | hilly 60-95 | mountain 84-148
 
-            EPC TOTALE EUR/km per zona × diametro (42-48" | 24-36" | 8-20"):
-            Pianura semplice    1,5-3,2M | 1,2-2,6M | 0,8-1,5M
-            Pianura agricola    1,8-3,5M | +15%     | +10%
-            Collinare           2,8-4,2M | 1,9-3,2M | 1,2-2,2M
-            Montuoso EU         3,5-5,5M
-            Montuoso estremo    5,2-7,2M | 3,1-5,5M | 1,8-3,0M
-            Artico              6,4-9,6M
-            Giungla/palude      5,6-8,0M
-            EUR/inch-metro 42-48": pianura 40-60 | collinare 60-95 | montuoso 84-148
-
-            LINE PIPE X70 EXW (CIF EU 2025-26): scaling 1,2-1,5 EUR/kg.
+            LINE PIPE X70 EXW (CIF EU 2025-26): scaling 1.2-1.5 EUR/kg.
             48"WT22 580-730 EUR/m | 42"WT20 480-620 | 36"WT17 380-520 | 24"WT12 200-280 | 16"WT9 130-190
 
-            VALVOLE BALL CL600 c/attuatore (k EUR/pz):
+            BALL VALVES CL600 with actuator (k EUR/unit):
             48" 480-720 | 36" 320-480 | 24" 160-250 | 16" 90-150
 
-            COMPRESSORE 20-30 MW: 25-45 M EUR (~1 M EUR/MW pkg compressori; aggiungi accessori centrale)
+            COMPRESSOR 20-30 MW: 25-45 M EUR (~1 M EUR/MW compressor package; add central accessories)
 
-            ATTRAVERSAMENTI EUR/m (rif 48", scala per diametri minori; precedenza prezzi aziendali):
-            Spingitubo pianura 800-1.000 | HDD pianura 2.500-5.500 | HDD montagna 5.000-9.000 | Microtunnel cls 10.000-15.000
+            CROSSINGS EUR/m (ref 48", scale for smaller diameters; company prices take precedence):
+            Casing flat 800-1,000 | HDD flat 2,500-5,500 | HDD mountain 5,000-9,000 | Microtunnel concrete 10,000-15,000
 
-            NDT (100% RX+AUT H2-ready): tie-in/manuale 100-150 EUR/giunto | linea ~2.000 EUR/gg/spread
+            NDT (100% RX+AUT H2-ready): tie-in/manual 100-150 EUR/joint | mainline ~2,000 EUR/day/spread
 
-            PROTEZIONE CATODICA: 20-35 kEUR/km | FOC+HDPE: 40-65 kEUR/km
-            DEG (Eng dettaglio): max 2% totale o ~75 EUR/ora stimata
-            CAMP BASE 300 pers: 1-3 M EUR (se no hotel; precedenza aziendali)
-            VITTO: operai rurali EU 40-55 EUR/p/gg | staff hotel 60-90 EUR/p/gg | 26 gg/mese
-            TOTALE V (vitto/alloggio): 2-4% costo totale
+            CATHODIC PROTECTION: 20-35 kEUR/km | FOC+HDPE: 40-65 kEUR/km
+            DEG (detail engineering): max 2% total or ~75 EUR/estimated hour
+            BASE CAMP 300 persons: 1-3 M EUR (if no hotel; company data takes precedence)
+            CATERING: rural workers EU 40-55 EUR/p/day | staff hotel 60-90 EUR/p/day | 26 days/month
+            TOTAL V (catering/accommodation): 2-4% total cost
 
-            STANDBY: spread completo 190-250 kEUR/gg | parziale (saldatura) 100-120 | camp+indiretti 35-55
+            STANDBY: full spread 190-250 kEUR/day | partial (welding) 100-120 | camp+indirects 35-55
 
-            SECURITY (% costo totale):
-            Basso (EU/NA) 0,5-1% | Medio (LATAM stabile, SE Asia) 1,5-3% | Alto (MX nord, AfSubSah, MO) 3-6% | Estremo (conflitto) 6-12% + K&R + PV
+            SECURITY (% total cost):
+            Low (EU/NA) 0.5-1% | Medium (stable LATAM, SE Asia) 1.5-3% | High (N Mexico, Sub-Saharan Africa, ME) 3-6% | Extreme (conflict) 6-12% + K&R + PV
+            </step>
 
-            ═══ FASE 5 — QUADRO ECONOMICO ═══
-            I. Mob+Temp Facilities | II. Costruzione (mezzi+pers+carburante)
-            III. Subcontratti+Forniture (split III.a Forniture | III.b Subappalti)
-            IV. Indiretti | V. Vitto/Alloggio
-            SUBTOTALE I-V
-            VI. su subtotale I-V: VI.a OH 6% + VI.b Contingency 2% + VI.c Assic/Finanziari 3-5% (totale tipico 12%)
-            VII. COSTO TOTALE = (I-V) + VI
-            VIII. PREZZO = VII × (1 + margine 6-10%, tipico 8%)
+            <step id="5" name="COST BREAKDOWN STRUCTURE">
+            I. Mob+Temp Facilities | II. Construction (equipment+personnel+fuel)
+            III. Subcontracts+Supplies (split III.a Supplies | III.b Subcontracts)
+            IV. Indirects | V. Catering/Accommodation
+            SUBTOTAL I-V
+            VI. on subtotal I-V: VI.a OH 6% + VI.b Contingency 2% + VI.c Insurance/Financial 3-5% (typical total 12%)
+            VII. TOTAL COST = (I-V) + VI
+            VIII. PRICE = VII × (1 + margin 6-10%, typical 8%)
+            </step>
 
-            ═══ FASE 6 — REPORT NARRATIVO ═══
-            - executive_summary: max 3 frasi per top management (configurazione, prezzo, EUR/km, posizionamento benchmark)
-            - Per ogni voce: documenta fonte_dato (AZIENDALE/BENCHMARK/ASSUNZIONE), rese, quantità, logica di calcolo
-            - rischi_principali: prioritizzati con livello ALTO/MEDIO/BASSO e impatto_eur quantificato in EUR
-            - cronoprogramma_sintetico: coerente con n_spread × durata × resa
-            - sensitivity_analysis: ≥5 scenari (base, pessimistico -15%, ottimistico +10%, cambio ±10%, rese -10%)
-            - raccomandazioni_contrattuali: ≥3 specifiche (clausole, penali, garanzie, risk allocation)
+            <step id="6" name="NARRATIVE REPORT">
+            - executive_summary: max 3 sentences for top management (configuration, price, EUR/km, benchmark positioning)
+            - For each item: document fonte_dato (AZIENDALE/BENCHMARK/ASSUNZIONE), productivity rates, quantities, calculation logic
+            - rischi_principali: prioritized with ALTO/MEDIO/BASSO level and quantified impatto_eur in EUR
+            - cronoprogramma_sintetico: consistent with n_spread × duration × productivity
+            - sensitivity_analysis: ≥5 scenarios (base, pessimistic -15%, optimistic +10%, FX ±10%, productivity -10%)
+            - raccomandazioni_contrattuali: ≥3 specific items (clauses, penalties, warranties, risk allocation)
+            </step>
 
-            ═══ FASE 7 — CHECK ANTI-SOVRASTIMA E COERENZA (eseguire prima di emettere) ═══
-            SCOPE: scope_check su tutte 8 voci A-H; se civile=ESCLUSO rischio standby in EUR/gg; se engineering=INCLUSO DEG in III cap 2%; se procurement=ESCLUSO no line pipe/valvole in III; se attraversamenti=solo meccanica no HDD/TOC/microtunnel.
-            NUMERICI: Σ analitica I-V = subtotale ±2%; EUR/km finale entro benchmark zona ±25%; EUR/inch-m entro benchmark ±25%; ripartizione I-V (Mob 3-5% | Costruz 30-40% | Forniture 40-55% | Indir 6-10% | Vitto 4-7%); contingency UNA sola volta; margine su costo post-contingency; n_spread × durata × resa = lunghezza ±5%; durata totale ≤ Gantt; no "Varie e imprevisti" >3% per capitolo.
-            ANTI-SOVRASTIMA: prezzi/rese aziendali prevalgono sempre su benchmark; no doppie maggiorazioni (buffer solo in VI); no coefficienti prudenziali impliciti nelle rese; quantità solo se documentate; cap mensile spread non oltre benchmark salvo giustificazione aziendale; line pipe EUR/m coerente con 1,2-1,5 EUR/kg sul peso del tubo; fattore carburante coerente con resa spread; ammortamento = settimane utilizzo effettivo.
-            COMPLETEZZA: assumptions_taken popolato per ogni dato non da file aziendali; sensitivity ≥5 scenari incluso base; raccomandazioni ≥3; tutti importi in EUR.
-            Se un check fallisce, correggi prima di emettere.
+            <step id="7" name="ANTI-OVERESTIMATION AND CONSISTENCY CHECK (execute before emitting)">
+            SCOPE: scope_check on all 8 items A-H; if civil=ESCLUSO add standby risk in EUR/day; if engineering=INCLUSO add DEG in III cap 2%; if procurement=ESCLUSO no line pipe/valves in III; if crossings=only mechanical, no HDD/TOC/microtunnel.
+            NUMERICAL: Analytical sum I-V = subtotal ±2%; final EUR/km within benchmark zone ±25%; EUR/inch-m within benchmark ±25%; distribution I-V (Mob 3-5% | Construction 30-40% | Supplies 40-55% | Indirects 6-10% | Catering 4-7%); contingency ONLY ONCE; margin on post-contingency cost; n_spread × duration × productivity = length ±5%; total duration ≤ Gantt; no "Miscellaneous" >3% per chapter.
+            ANTI-OVERESTIMATION: company prices/rates always prevail over benchmarks; no double markups (buffer only in VI); no implicit safety coefficients in productivity rates; quantities only if documented; monthly spread cap not above benchmark unless justified by company data; line pipe EUR/m consistent with 1.2-1.5 EUR/kg on pipe weight; fuel factor consistent with spread productivity; depreciation = actual weeks of use.
+            COMPLETENESS: assumptions_taken populated for every item not from company files; sensitivity ≥5 scenarios including base; recommendations ≥3; all amounts in EUR.
+            If any check fails, correct before emitting.
+            </step>
 
-            ═══ OUTPUT ═══
-            JSON valido, nessun testo prima/dopo, no markdown. Campi obbligatori: scope_check (8 voci A-H), estimate_status, assumptions_taken, executive_summary, cambio_eur_usd (valore fornito nel messaggio utente), quadro_economico (I-VIII + subtotale; percentuali opzionali), kpi (derivati opzionali/null), benchmark_comparison, analisi_dettaglio (incluso III.a e III.b separati), rischi_principali (con impatto_eur), sensitivity_analysis (≥5), raccomandazioni_contrattuali (≥3), cronoprogramma_sintetico, note_finali.
+            </steps>
+
+            <guidelines>
+            - Valid JSON output only, no text before/after, no markdown.
+            - Mandatory fields: scope_check (8 items A-H), estimate_status, assumptions_taken, executive_summary, cambio_eur_usd (value from user message), quadro_economico (I-VIII + subtotal; optional percentages), kpi (optional/null derived fields), benchmark_comparison, analisi_dettaglio (including III.a and III.b separately), rischi_principali (with impatto_eur), sensitivity_analysis (≥5), raccomandazioni_contrattuali (≥3), cronoprogramma_sintetico, note_finali.
+            - All amounts in EUR.
+            - Respond in Italian.
+            </guidelines>
             """;
 
     @Async("reportGenerationExecutor")
@@ -248,11 +264,11 @@ public class EstimateGenerationProcessor {
             String effectiveUser = userPrompt;
             int maxOutputTokens = 16000;
             if (ModelChatClientFactory.isGeminiModel(model)) {
-                effectiveUser = "[ISTRUZIONI OBBLIGATORIE - APPLICARE CON PRIORITÀ ASSOLUTA]\n"
+                effectiveUser = "<mandatory_instructions priority=\"ABSOLUTE\">\n"
                         + SYSTEM_PROMPT.strip()
-                        + "\n\n"
+                        + "\n</mandatory_instructions>\n\n"
                         + userPrompt;
-                effectiveSystem = "Sei un assistente AI specializzato in analisi EPC oil & gas. Segui le istruzioni nel messaggio utente.";
+                effectiveSystem = "You are an AI assistant specialized in EPC oil & gas analysis. Follow the instructions in the user message.";
                 maxOutputTokens = 65535;
             }
 
@@ -354,24 +370,27 @@ public class EstimateGenerationProcessor {
         String rateText = formatRate(usdPerEurRate);
 
         StringBuilder sb = new StringBuilder();
-        sb.append("[INFORMAZIONI PROGETTO ESTRATTE DAL DOCUMENTO]\n");
-        sb.append(projectInfoJson).append("\n\n");
+        sb.append("<project_information>\n");
+        sb.append(projectInfoJson).append("\n");
+        sb.append("</project_information>\n\n");
 
-        sb.append("[PREZZI INTERNI AZIENDALI - DA UTILIZZARE CON PRIORITÀ MASSIMA]\n");
-        sb.append("I dati sono ordinati dal più recente al più vecchio. In caso di valori contrastanti per la stessa voce di costo, il documento con data di caricamento più recente prevale.\n");
-        sb.append(pricingSection).append("\n\n");
+        sb.append("<internal_pricing priority=\"MAXIMUM\">\n");
+        sb.append("<note>Data ordered from most recent to oldest. For conflicting values on the same cost item, the most recently uploaded document takes precedence.</note>\n");
+        sb.append(pricingSection).append("\n");
+        sb.append("</internal_pricing>\n\n");
 
-        sb.append("[CAMBIO EUR/USD APPLICATO]\n");
-        sb.append("1 EUR = ").append(rateText).append(" USD. Usa questo valore esatto in cambio_eur_usd e per convertire qualsiasi benchmark espresso in USD. Il JSON finale deve restare in EUR.\n\n");
+        sb.append("<exchange_rate>\n");
+        sb.append("1 EUR = ").append(rateText).append(" USD. Use this exact value for cambio_eur_usd and to convert any benchmark expressed in USD. The final JSON must remain in EUR.\n");
+        sb.append("</exchange_rate>\n\n");
 
-        sb.append("[DATI DI MERCATO AGGIORNATI - NAZIONE: ")
-                .append(info.nazione() != null ? info.nazione() : "N/D").append("]\n");
+        sb.append("<market_data country=\"")
+                .append(info.nazione() != null ? info.nazione() : "N/D").append("\">\n");
 
         for (Map.Entry<String, List<WebSearchService.SearchResult>> entry : searchResults.entrySet()) {
             sb.append("=== ").append(entry.getKey()).append(" ===\n");
             List<WebSearchService.SearchResult> results = entry.getValue();
             if (results == null || results.isEmpty()) {
-                sb.append("Nessun dato disponibile.\n\n");
+                sb.append("No data available.\n\n");
             } else {
                 for (int j = 0; j < results.size(); j++) {
                     WebSearchService.SearchResult r = results.get(j);
@@ -383,22 +402,25 @@ public class EstimateGenerationProcessor {
             }
         }
 
-        sb.append("[ISTRUZIONI]\n");
+        sb.append("</market_data>\n\n");
+
+        sb.append("<instructions>\n");
         if (hasImages) {
-            sb.append("Sono allegate tavole visuali composite del documento PDF.\n");
-            sb.append("Ogni tavola puo contenere piu figure o pagine rappresentative: analizza attentamente eventuali Gantt, cronoprogrammi, schemi tecnici o tabelle.\n");
-            sb.append("Usa le informazioni visive per ricavare durate delle fasi, sequenze di attività e dati tecnici non presenti nel testo.\n");
+            sb.append("Attached visual composite tables from the PDF document are included.\n");
+            sb.append("Each table may contain multiple representative figures or pages: carefully analyze any Gantt charts, schedules, technical diagrams, or tables.\n");
+            sb.append("Use the visual information to extract phase durations, activity sequences, and technical data not present in the text.\n");
         }
-        sb.append("Genera un preventivo dettagliato per questo progetto.\n");
+        sb.append("Generate a detailed cost estimate for this project.\n");
 
         String tipoUp = info.tipoProgetto() != null ? info.tipoProgetto().toUpperCase() : "";
 
-        sb.append("Voce VI.a Overhead (OH): 6% del subtotale I-V. Voce VI.b Contingency: 2% del subtotale I-V. Voce VI.c Costi Finanziari e Assicurazioni: 3-5% del subtotale I-V.\n");
-        sb.append("Includi sempre: mobilizzazione, costruzione, subcontratti (Forniture + Subappalti separati), indiretti, vitto/alloggio, OH/contingency/finanziari.\n");
-        sb.append("Tutti gli importi in EUR. Usa il cambio EUR/USD riportato nella sezione [CAMBIO EUR/USD APPLICATO] per cambio_eur_usd e per convertire qualsiasi benchmark in USD trovato nelle ricerche di mercato.\n");
-        sb.append("Il report deve essere dettagliato e professionale.\n\n");
+        sb.append("Item VI.a Overhead (OH): 6% of subtotal I-V. Item VI.b Contingency: 2% of subtotal I-V. Item VI.c Financial costs and Insurance: 3-5% of subtotal I-V.\n");
+        sb.append("Always include: mobilization, construction, subcontracts (Supplies + Subcontracts separately), indirects, catering/accommodation, OH/contingency/financial costs.\n");
+        sb.append("All amounts in EUR. Use the EUR/USD rate from the <exchange_rate> section for cambio_eur_usd and to convert any USD benchmark found in market research.\n");
+        sb.append("The report must be detailed and professional.\n");
+        sb.append("</instructions>\n\n");
 
-        sb.append("Restituisci ESCLUSIVAMENTE questo JSON (tutti gli importi sono in EUR; le chiavi che terminano in '_usd' contengono comunque valori in EUR per compatibilità con il vecchio schema):\n");
+        sb.append("Return ONLY the following JSON (all amounts in EUR; keys ending in '_usd' also contain EUR values for backward schema compatibility):\n");
         sb.append("""
                 {
                   "nazione": "...",

@@ -34,10 +34,18 @@ public class ProjectInfoExtractor {
     ) {}
 
     private static final String SYSTEM_PROMPT = """
-            Sei un analista di documenti tecnici specializzato in progetti EPC oil & gas.
-            Il tuo unico compito è estrarre informazioni strutturate dal testo fornito.
-            Rispondi ESCLUSIVAMENTE con un oggetto JSON valido, senza markdown, senza testo prima o dopo.
-            Se un'informazione non è presente nel documento usa null.
+            <role>
+            You are a technical document analyst specialized in EPC oil & gas projects.
+            Your sole task is to extract structured information from the provided text.
+            </role>
+
+            <guidelines>
+            - Respond ONLY with a valid JSON object, no markdown, no text before or after.
+            - If a piece of information is not present in the document, use null.
+            - Never fabricate or infer values not explicitly stated in the document.
+            - Return numeric fields as numbers, not strings.
+            - Respond in Italian for text field values where applicable.
+            </guidelines>
             """;
 
     public ProjectInfo extract(String pdfText, String model) {
@@ -46,7 +54,11 @@ public class ProjectInfoExtractor {
                 : pdfText;
 
         String userPrompt = """
-                Estrai le seguenti informazioni dal documento tecnico fornito e restituisci un JSON con esattamente questi campi:
+                <task>
+                Extract the following information from the provided technical document and return a JSON object with exactly these fields.
+                </task>
+
+                <output_format>
                 {
                   "nazione": "paese dove si svolge il progetto",
                   "tipo_progetto": "PIPELINE o IMPIANTO o MISTO",
@@ -60,11 +72,36 @@ public class ProjectInfoExtractor {
                   "pressione_progetto_bara": numero decimale o null,
                   "note_tecniche": "altre note tecniche rilevanti o null"
                 }
+                </output_format>
 
-                Documento:
-                ---
+                <guidelines>
+                - Return ONLY the JSON object, no additional text.
+                - For numeric fields, return numbers without units (e.g., 48 not "48 inches").
+                - For "tipo_progetto", choose exactly one of: PIPELINE, IMPIANTO, or MISTO.
+                - Use null for any field not explicitly stated in the document — do not infer.
+                </guidelines>
+
+                <example>
+                Input excerpt: "Construction of a 36-inch pipeline, 120 km, in Italy, duration 18 months, 2 spreads, design pressure 75 bara."
+                Output:
+                {
+                  "nazione": "Italia",
+                  "tipo_progetto": "PIPELINE",
+                  "diametro_pollici": 36,
+                  "lunghezza_km": 120,
+                  "durata_mesi": 18,
+                  "num_spread": 2,
+                  "avanzamento_m_giorno": null,
+                  "scope_lavori": null,
+                  "zona_geografica": null,
+                  "pressione_progetto_bara": 75,
+                  "note_tecniche": null
+                }
+                </example>
+
+                <input>
                 %s
-                ---
+                </input>
                 """.formatted(truncated);
 
         try {
