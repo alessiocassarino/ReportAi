@@ -647,59 +647,55 @@ public class ContractReportBuilder {
         if (start < 0) return "{}";
         s = s.substring(start);
 
-        // Tronca qualsiasi testo dopo l'ultima } (es. postamble aggiunto da Gemini)
+        // Tronca il postamble di Gemini (testo dopo l'ultima })
         int lastClose = s.lastIndexOf('}');
         if (lastClose >= 0) {
             s = s.substring(0, lastClose + 1);
         }
 
-        // Se il JSON è completo lo restituiamo as-is, altrimenti lo ripariamo
-        int end = s.lastIndexOf('}');
-        if (end > 0 && end == s.length() - 1) {
-            return s; // già terminato correttamente
-        }
-
+        // Passa sempre attraverso repairTruncatedJson: è safe su JSON già completi
+        // (braces=0, brackets=0 → nessuna modifica) e gestisce correttamente i JSON
+        // troncati con array o oggetti non chiusi (es. output tagliato al token limit).
         return repairTruncatedJson(s);
     }
 
     /**
-     * Chiude un JSON troncato aggiungendo le parentesi mancanti.
-     * Gestisce stringhe con escape, array e oggetti annidati.
+     * Chiude un JSON troncato aggiungendo le parentesi mancanti nell'ordine LIFO corretto.
+     * Esempio: per {[{ troncato serve }]} e non ]]}} (due contatori separati darebbero ordine sbagliato).
      */
     private String repairTruncatedJson(String json) {
         StringBuilder sb = new StringBuilder(json.stripTrailing());
 
-        // Rimuove eventuale virgola finale prima di chiudere
         if (!sb.isEmpty() && sb.charAt(sb.length() - 1) == ',') {
             sb.deleteCharAt(sb.length() - 1);
         }
 
-        // Conta strutture aperte percorrendo il testo
-        int braces = 0, brackets = 0;
+        // Stack delle parentesi di chiusura attese, in ordine LIFO
+        java.util.Deque<Character> stack = new java.util.ArrayDeque<>();
         boolean inString = false, escaped = false;
 
         for (int i = 0; i < sb.length(); i++) {
             char c = sb.charAt(i);
-            if (escaped) { escaped = false; continue; }
-            if (c == '\\' && inString) { escaped = true; continue; }
-            if (c == '"') { inString = !inString; continue; }
+            if (escaped)              { escaped = false; continue; }
+            if (c == '\\' && inString){ escaped = true;  continue; }
+            if (c == '"')             { inString = !inString; continue; }
             if (!inString) {
                 switch (c) {
-                    case '{' -> braces++;
-                    case '}' -> braces--;
-                    case '[' -> brackets++;
-                    case ']' -> brackets--;
+                    case '{' -> stack.push('}');
+                    case '[' -> stack.push(']');
+                    case '}', ']' -> { if (!stack.isEmpty()) stack.pop(); }
                 }
             }
         }
 
-        // Chiude eventuale stringa aperta
         if (inString) sb.append('"');
-        // Chiude array e oggetti aperti
-        for (int i = 0; i < Math.max(0, brackets); i++) sb.append(']');
-        for (int i = 0; i < Math.max(0, braces);   i++) sb.append('}');
 
-        log.warn("JSON sintesi era troncato: riparato aggiungendo {} ']' e {} '}'", brackets, braces);
+        int repaired = stack.size();
+        while (!stack.isEmpty()) sb.append(stack.pop());
+
+        if (repaired > 0) {
+            log.warn("JSON sintesi era troncato: riparati {} caratteri di chiusura mancanti", repaired);
+        }
         return sb.toString();
     }
 }

@@ -9,6 +9,7 @@ import com.claude.reportAi.service.TokenRateLimiter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.reader.tika.TikaDocumentReader;
@@ -46,6 +47,12 @@ public class EstimateGenerationProcessor {
     private final PdfPageImageExtractor pdfPageImageExtractor;
     private final ObjectMapper objectMapper;
     private final ExchangeRateService exchangeRateService;
+
+    @Value("${app.estimate.extractor-model.anthropic:claude-haiku-4-5-20251001}")
+    private String extractorModelAnthropic;
+
+    @Value("${app.estimate.extractor-model.gemini:gemini-2.0-flash}")
+    private String extractorModelGemini;
 
     private static final int TAVILY_CONTENT_MAX_CHARS = 400;
 
@@ -185,14 +192,15 @@ public class EstimateGenerationProcessor {
             // Step 2 – Analisi struttura progetto
             throwIfCancelled(jobId);
             updateProgress(jobId, 10, "Analisi struttura progetto");
-            ProjectInfoExtractor.ProjectInfo info = projectInfoExtractor.extract(fullText, model);
-            log.info("Info estratte: nazione={}, tipo={}, km={}, mesi={}",
-                    info.nazione(), info.tipoProgetto(), info.lunghezzaKm(), info.durataMesi());
+            String extractorModel = resolveExtractorModel(model);
+            ProjectInfoExtractor.ProjectInfo info = projectInfoExtractor.extract(fullText, extractorModel);
+            log.info("Info estratte: nazione={}, tipo={}, km={}, mesi={} [extractor={}]",
+                    info.nazione(), info.tipoProgetto(), info.lunghezzaKm(), info.durataMesi(), extractorModel);
 
             // Step 2b – Estrazione esclusioni e battery limits
             throwIfCancelled(jobId);
             updateProgress(jobId, 18, "Analisi esclusioni e battery limits");
-            ExclusionsExtractor.ExclusionContext exclusions = exclusionsExtractor.extract(fullText, model);
+            ExclusionsExtractor.ExclusionContext exclusions = exclusionsExtractor.extract(fullText, extractorModel);
 
             // Step 3 – Recupero prezzi interni
             updateProgress(jobId, 25, "Recupero prezzi interni aziendali");
@@ -612,9 +620,18 @@ public class EstimateGenerationProcessor {
         return sb.toString();
     }
 
-    // Timeout massimo per la chiamata al modello: 12 minuti.
-    // Se il modello non risponde entro questo limite il job viene marcato FAILED.
-    private static final int MODEL_CALL_TIMEOUT_MINUTES = 12;
+    // Uses a cheap/fast model for extraction tasks (ProjectInfo, Exclusions) regardless of the main
+    // model selected by the user — avoids consuming Anthropic TPM capacity before the main call.
+    private String resolveExtractorModel(String mainModel) {
+        if (ModelChatClientFactory.isAnthropicModel(mainModel)) {
+            return extractorModelAnthropic;
+        }
+        return extractorModelGemini;
+    }
+
+    // Timeout massimo per la chiamata al modello principale.
+    // Aumentato a 20 min per Opus (step di estrazione ora usano modelli veloci separati).
+    private static final int MODEL_CALL_TIMEOUT_MINUTES = 20;
 
     /**
      * Esegue la chiamata al modello in un thread separato e controlla ogni 5 secondi
