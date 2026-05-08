@@ -67,7 +67,7 @@ public class EstimateGenerationProcessor {
             <steps>
 
             <step id="1" name="SCOPE CHECK">
-            For each of the 8 items A-H, assign status {INCLUSO|PARZIALE|ESCLUSO|INCERTO}:
+            For each of the 9 items A-I, assign status {INCLUSO|PARZIALE|ESCLUSO|INCERTO}:
             A. ENGINEERING (basic/FEED/detail/iso/P&ID)
             B. PROCUREMENT (line pipe, valvole, equipment, compressori, skid, bulk, cavi, strutture)
             C. COSTRUZIONE PIPELINE MECCANICA (linea+tie-in+collaudo+FJC)
@@ -76,6 +76,7 @@ public class EstimateGenerationProcessor {
             F. INSTALLAZIONE E&I (cabling, FOC, PC, SCADA)
             G. STAZIONI BVS/SCRAPER (size by diameter/m²/m³ concrete/weight)
             H. STAZIONI COMPRESSION/METERING (size by diameter/m²/m³ concrete/weight)
+            I. CAMP/FACILITIES PER IL PERSONALE (verificare se strutture esistenti —hotel, compound, uffici— possono accomodare il personale o se è necessario costruire un campo/ufficio base)
             Never ask for clarifications. If INCERTO: assume the most reasonable hypothesis, populate assumptions_taken, set estimate_status="ESTIMATE_WITH_ASSUMPTIONS".
             </step>
 
@@ -150,13 +151,13 @@ public class EstimateGenerationProcessor {
             - executive_summary: max 3 sentences for top management (configuration, price, EUR/km, benchmark positioning)
             - For each item: document fonte_dato (AZIENDALE/BENCHMARK/ASSUNZIONE), productivity rates, quantities, calculation logic
             - rischi_principali: prioritized with ALTO/MEDIO/BASSO level and quantified impatto_eur in EUR
-            - cronoprogramma_sintetico: consistent with n_spread × duration × productivity
+            - cronoprogramma_sintetico: max 8 fasi, note max 15 parole per fase. MANDATORY: populate always, never emit empty array
             - sensitivity_analysis: ≥5 scenarios (base, pessimistic -15%, optimistic +10%, FX ±10%, productivity -10%)
-            - raccomandazioni_contrattuali: ≥3 specific items (clauses, penalties, warranties, risk allocation)
+            - raccomandazioni_contrattuali: min 3, max 5 items — tema (max 5 words), raccomandazione (max 2 sentences), motivazione (max 1 sentence). MANDATORY: complete all items before emitting note_finali
             </step>
 
             <step id="7" name="ANTI-OVERESTIMATION AND CONSISTENCY CHECK (execute before emitting)">
-            SCOPE: scope_check on all 8 items A-H; if civil=ESCLUSO add standby risk in EUR/day; if engineering=INCLUSO add DEG in III cap 2%; if procurement=ESCLUSO no line pipe/valves in III; if crossings=only mechanical, no HDD/TOC/microtunnel.
+            SCOPE: scope_check on all 9 items A-I; if civil=ESCLUSO add standby risk in EUR/day; if engineering=INCLUSO add DEG in III cap 2%; if procurement=ESCLUSO no line pipe/valves in III; if crossings=only mechanical, no HDD/TOC/microtunnel.
             NUMERICAL: Analytical sum I-V = subtotal ±2%; final EUR/km within benchmark zone ±25%; EUR/inch-m within benchmark ±25%; distribution I-V (Mob 3-5% | Construction 30-40% | Supplies 40-55% | Indirects 6-10% | Catering 4-7%); contingency ONLY ONCE; margin on post-contingency cost; n_spread × duration × productivity = length ±5%; total duration ≤ Gantt; no "Miscellaneous" >3% per chapter.
             ANTI-OVERESTIMATION: company prices/rates always prevail over benchmarks; no double markups (buffer only in VI); no implicit safety coefficients in productivity rates; quantities only if documented; monthly spread cap not above benchmark unless justified by company data; line pipe EUR/m consistent with 1.2-1.5 EUR/kg on pipe weight; fuel factor consistent with spread productivity; depreciation = actual weeks of use.
             COMPLETENESS: assumptions_taken populated for every item not from company files; sensitivity ≥5 scenarios including base; recommendations ≥3; all amounts in EUR.
@@ -167,7 +168,7 @@ public class EstimateGenerationProcessor {
 
             <guidelines>
             - Valid JSON output only, no text before/after, no markdown.
-            - Mandatory fields: scope_check (8 items A-H), estimate_status, assumptions_taken, executive_summary, cambio_eur_usd (value from user message), quadro_economico (I-VIII + subtotal; optional percentages), kpi (optional/null derived fields), benchmark_comparison, analisi_dettaglio (including III.a and III.b separately), rischi_principali (with impatto_eur), sensitivity_analysis (≥5), raccomandazioni_contrattuali (≥3), cronoprogramma_sintetico, note_finali.
+            - Mandatory fields: scope_check (9 items A-I), estimate_status, assumptions_taken, executive_summary, cambio_eur_usd (value from user message), quadro_economico (I-VIII + subtotal; optional percentages), kpi (optional/null derived fields), benchmark_comparison, analisi_dettaglio (including III.a and III.b separately), rischi_principali (with impatto_eur), sensitivity_analysis (≥5), raccomandazioni_contrattuali (≥3), cronoprogramma_sintetico, note_finali.
             - All amounts in EUR.
             - Respond in Italian.
             </guidelines>
@@ -276,7 +277,7 @@ public class EstimateGenerationProcessor {
             // Nota: il limite massimo dei modelli Gemini è 65535 (bound esclusivo), non 65536.
             String effectiveSystem = SYSTEM_PROMPT;
             String effectiveUser = userPrompt;
-            int maxOutputTokens = 16000;
+            int maxOutputTokens = 20000;
             if (ModelChatClientFactory.isGeminiModel(model)) {
                 effectiveUser = "<mandatory_instructions priority=\"ABSOLUTE\">\n"
                         + SYSTEM_PROMPT.strip()
@@ -305,7 +306,7 @@ public class EstimateGenerationProcessor {
 
             // Step 6 – Generazione documento Word
             updateProgress(jobId, 85, "Generazione documento Word");
-            byte[] docx = estimateReportBuilder.build(reportJson, info, originalFilename, searchResults);
+            byte[] docx = estimateReportBuilder.build(reportJson, info, originalFilename);
 
             // Step 7 – Salvataggio risultato
             Estimate job = loadJob(jobId);
@@ -457,7 +458,8 @@ public class EstimateGenerationProcessor {
                     {"codice": "E", "voce": "Attraversamenti speciali",     "stato": "...", "note": "..."},
                     {"codice": "F", "voce": "Installazione E&I",            "stato": "...", "note": "..."},
                     {"codice": "G", "voce": "Stazioni BVS/Scraper",         "stato": "...", "note": "..."},
-                    {"codice": "H", "voce": "Stazioni Compression/Metering","stato": "...", "note": "..."}
+                    {"codice": "H", "voce": "Stazioni Compression/Metering","stato": "...", "note": "..."},
+                    {"codice": "I", "voce": "Camp/Facilities per il Personale", "stato": "INCLUSO|PARZIALE|ESCLUSO|INCERTO", "note": "..."}
                   ],
                   "quadro_economico": [
                     {"voce": "I - Mobilizzazione e Temporary Facilities", "importo_usd": 0, "percentuale": 0.0, "note": "..."},
@@ -495,6 +497,22 @@ public class EstimateGenerationProcessor {
                     "eur_inch_metro_posizionamento": "BASSO|MEDIO|ALTO|FUORI RANGE",
                     "commento": "1-2 frasi che spiegano il posizionamento rispetto al benchmark"
                   },
+                  "raccomandazioni_contrattuali": [
+                    {"tema": "Clausole | Penali | Garanzie | Risk Allocation", "raccomandazione": "...", "motivazione": "..."}
+                  ],
+                  "cronoprogramma_sintetico": [
+                    {"fase": "...", "durata": "...", "settimane": "...", "note": "..."}
+                  ],
+                  "rischi_principali": [
+                    {"categoria": "...", "descrizione": "...", "impatto": "ALTO|MEDIO|BASSO", "impatto_eur": 0, "mitigazione": "..."}
+                  ],
+                  "sensitivity_analysis": [
+                    {"scenario": "Base case",          "descrizione": "Caso base secondo ipotesi attuali", "variazione_percentuale": 0.0,  "prezzo_eur": 0, "delta_eur": 0},
+                    {"scenario": "Pessimistico -15%",  "descrizione": "...",                                "variazione_percentuale": -15.0,"prezzo_eur": 0, "delta_eur": 0},
+                    {"scenario": "Ottimistico +10%",   "descrizione": "...",                                "variazione_percentuale": 10.0, "prezzo_eur": 0, "delta_eur": 0},
+                    {"scenario": "Cambio EUR/USD ±10%","descrizione": "...",                                "variazione_percentuale": 10.0, "prezzo_eur": 0, "delta_eur": 0},
+                    {"scenario": "Rese -10%",          "descrizione": "...",                                "variazione_percentuale": -10.0,"prezzo_eur": 0, "delta_eur": 0}
+                  ],
                   "analisi_dettaglio": [
                     {
                       "categoria": "Mobilizzazione e Temporary Facilities",
@@ -523,22 +541,6 @@ public class EstimateGenerationProcessor {
                       "assunzioni": [],
                       "rischi": []
                     }
-                  ],
-                  "rischi_principali": [
-                    {"categoria": "...", "descrizione": "...", "impatto": "ALTO|MEDIO|BASSO", "impatto_eur": 0, "mitigazione": "..."}
-                  ],
-                  "sensitivity_analysis": [
-                    {"scenario": "Base case",          "descrizione": "Caso base secondo ipotesi attuali", "variazione_percentuale": 0.0,  "prezzo_eur": 0, "delta_eur": 0},
-                    {"scenario": "Pessimistico -15%",  "descrizione": "...",                                "variazione_percentuale": -15.0,"prezzo_eur": 0, "delta_eur": 0},
-                    {"scenario": "Ottimistico +10%",   "descrizione": "...",                                "variazione_percentuale": 10.0, "prezzo_eur": 0, "delta_eur": 0},
-                    {"scenario": "Cambio EUR/USD ±10%","descrizione": "...",                                "variazione_percentuale": 10.0, "prezzo_eur": 0, "delta_eur": 0},
-                    {"scenario": "Rese -10%",          "descrizione": "...",                                "variazione_percentuale": -10.0,"prezzo_eur": 0, "delta_eur": 0}
-                  ],
-                  "raccomandazioni_contrattuali": [
-                    {"tema": "Clausole | Penali | Garanzie | Risk Allocation", "raccomandazione": "...", "motivazione": "..."}
-                  ],
-                  "cronoprogramma_sintetico": [
-                    {"fase": "...", "durata": "...", "settimane": "...", "note": "..."}
                   ],
                   "note_finali": "..."
                 }

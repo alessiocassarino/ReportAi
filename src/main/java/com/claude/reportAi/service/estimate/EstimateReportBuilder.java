@@ -18,9 +18,6 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 import com.claude.reportAi.service.ReportHeaderHelper;
-import com.claude.reportAi.service.estimate.WebSearchService;
-import java.util.List;
-import java.util.Map;
 
 @Component
 @Slf4j
@@ -67,8 +64,8 @@ public class EstimateReportBuilder {
     // Metodo principale
     // -------------------------------------------------------------------------
 
-    public byte[] build(String reportJson, ProjectInfoExtractor.ProjectInfo info, String originalFilename,
-                        Map<String, List<WebSearchService.SearchResult>> searchResults) throws Exception {
+    public byte[] build(String reportJson, ProjectInfoExtractor.ProjectInfo info,
+                        String originalFilename) throws Exception {
         JsonNode root = objectMapper.readTree(cleanJson(reportJson));
 
         try (XWPFDocument doc = new XWPFDocument()) {
@@ -93,10 +90,6 @@ public class EstimateReportBuilder {
             addContractualRecommendations(doc, root);
             addPageBreak(doc);
             addTimeline(doc, root);
-            if (searchResults != null && !searchResults.isEmpty()) {
-                addPageBreak(doc);
-                addSearchAppendix(doc, searchResults);
-            }
 
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             doc.write(out);
@@ -1137,74 +1130,6 @@ public class EstimateReportBuilder {
             addSpacer(doc, 1);
             addHeading2(doc, "Note Finali");
             addBodyText(doc, noteFinali);
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Appendice fonti web
-    // -------------------------------------------------------------------------
-
-    private void addSearchAppendix(XWPFDocument doc,
-                                   Map<String, List<WebSearchService.SearchResult>> searchResults) {
-        addHeading1(doc, "10. APPENDICE — FONTI E RICERCHE DI MERCATO");
-        addBodyText(doc, "Riepilogo delle fonti di dati di mercato consultate per l'aggiornamento dei prezzi e delle stime.");
-        addSpacer(doc, 1);
-
-        for (Map.Entry<String, List<WebSearchService.SearchResult>> entry : searchResults.entrySet()) {
-            List<WebSearchService.SearchResult> results = entry.getValue();
-            if (results == null || results.isEmpty()) continue;
-
-            addHeading2(doc, entry.getKey());
-
-            for (int i = 0; i < Math.min(results.size(), 5); i++) {
-                WebSearchService.SearchResult r = results.get(i);
-
-                // Numero + titolo fonte
-                XWPFParagraph titlePara = doc.createParagraph();
-                setSpacingBefore(titlePara, 100);
-                XWPFRun numRun = titlePara.createRun();
-                numRun.setText("[" + (i + 1) + "]  ");
-                numRun.setBold(true);
-                numRun.setFontSize(10);
-                numRun.setColor(C_ORANGE);
-                numRun.setFontFamily("Calibri");
-                XWPFRun titleRun = titlePara.createRun();
-                titleRun.setText(r.title() != null ? r.title() : "");
-                titleRun.setBold(true);
-                titleRun.setFontSize(10);
-                titleRun.setColor(C_DARK_TEXT);
-                titleRun.setFontFamily("Calibri");
-
-                // URL
-                if (r.url() != null && !r.url().isBlank()) {
-                    XWPFParagraph urlPara = doc.createParagraph();
-                    urlPara.setIndentationLeft(400);
-                    XWPFRun urlRun = urlPara.createRun();
-                    urlRun.setText(r.url());
-                    urlRun.setFontSize(8);
-                    urlRun.setColor(C_ORANGE);
-                    urlRun.setItalic(true);
-                    urlRun.setFontFamily("Calibri");
-                }
-
-                // Snippet (primi 250 caratteri del contenuto)
-                String content = r.content() != null ? r.content().strip() : "";
-                if (!content.isBlank()) {
-                    String snippet = content.length() > 250
-                            ? content.substring(0, 250) + "…"
-                            : content;
-                    XWPFParagraph snippetPara = doc.createParagraph();
-                    snippetPara.setIndentationLeft(400);
-                    setSpacingAfter(snippetPara, 80);
-                    XWPFRun snippetRun = snippetPara.createRun();
-                    snippetRun.setText(snippet);
-                    snippetRun.setFontSize(9);
-                    snippetRun.setColor(C_GRAY_TEXT);
-                    snippetRun.setFontFamily("Calibri");
-                }
-            }
-
-            addSpacer(doc, 1);
         }
     }
 
