@@ -49,7 +49,9 @@ public class ModelChatClientFactory {
      */
     private static final Map<String, List<String>> SERVICE_MODELS = Map.of(
             "estimates", List.of("claude-opus-4-7"),
-            "contractAnalysis", List.of("claude-haiku-4-5-20251001", "gemini-2.5-pro", "claude-sonnet-4-6", "claude-opus-4-7")
+            "contractAnalysis", List.of("claude-haiku-4-5-20251001", "gemini-2.5-pro", "claude-sonnet-4-6", "claude-opus-4-7"),
+            "priceComparison", List.of("claude-haiku-4-5-20251001", "gemini-2.5-pro", "claude-opus-4-7", "claude-sonnet-4-6")
+
     );
 
     /**
