@@ -144,7 +144,14 @@ public class EstimateGenerationProcessor {
             SUBTOTAL I-V
             VI. on subtotal I-V: VI.a OH 6% + VI.b Contingency 2% + VI.c Insurance/Financial 3-5% (typical total 12%)
             VII. TOTAL COST = (I-V) + VI
-            VIII. PRICE = VII × (1 + margin 6-10%, typical 8%)
+            VIII. PRICE = VII × (1 + margin)  — margin 6-10%, typical 8%
+
+            MANDATORY PRICE RULE — read before populating quadro_economico:
+            • VIII is ALWAYS derived by applying the margin multiplier to VII (cost-up logic).
+            • VIII MUST be strictly greater than VII. If VIII ≤ VII the calculation is WRONG.
+            • FORBIDDEN: setting VIII equal to a EUR/km × km benchmark value. Benchmarks are for
+              VALIDATION only (see step 7). Never reverse-engineer VIII from a target EUR/km figure.
+            • Correct sequence: build I→V bottom-up → compute SUBTOTAL → add VI → get VII → VIII = VII × 1.08.
             </step>
 
             <step id="6" name="NARRATIVE REPORT">
@@ -158,7 +165,8 @@ public class EstimateGenerationProcessor {
 
             <step id="7" name="ANTI-OVERESTIMATION AND CONSISTENCY CHECK (execute before emitting)">
             SCOPE: scope_check on all 9 items A-I; if civil=ESCLUSO add standby risk in EUR/day; if engineering=INCLUSO add DEG in III cap 2%; if procurement=ESCLUSO no line pipe/valves in III; if crossings=only mechanical, no HDD/TOC/microtunnel.
-            NUMERICAL: Analytical sum I-V = subtotal ±2%; final EUR/km within benchmark zone ±25%; EUR/inch-m within benchmark ±25%; distribution I-V (Mob 3-5% | Construction 30-40% | Supplies 40-55% | Indirects 6-10% | Catering 4-7%); contingency ONLY ONCE; margin on post-contingency cost; n_spread × duration × productivity = length ±5%; total duration ≤ Gantt; no "Miscellaneous" >3% per chapter.
+            NUMERICAL: Analytical sum I-V = subtotal ±2%; EUR/km and EUR/inch-m are VALIDATION metrics only (benchmark zone ±25%) — never use them to set or adjust VIII directly; distribution I-V (Mob 3-5% | Construction 30-40% | Supplies 40-55% | Indirects 6-10% | Catering 4-7%); contingency ONLY ONCE; margin ONLY on post-contingency cost (VII); n_spread × duration × productivity = length ±5%; total duration ≤ Gantt; no "Miscellaneous" >3% per chapter.
+            PRICE INTEGRITY CHECK (execute last, before emitting): verify VIII = VII × (1 + chosen_margin). If VIII < VII → STOP, recalculate VIII = VII × 1.08 and update note_finali. If the resulting EUR/km falls outside the benchmark zone ±25%, document the deviation in benchmark_comparison.commento — do NOT adjust VIII to fit the benchmark.
             ANTI-OVERESTIMATION: company prices/rates always prevail over benchmarks; no double markups (buffer only in VI); no implicit safety coefficients in productivity rates; quantities only if documented; monthly spread cap not above benchmark unless justified by company data; line pipe EUR/m consistent with 1.2-1.5 EUR/kg on pipe weight; fuel factor consistent with spread productivity; depreciation = actual weeks of use.
             COMPLETENESS: assumptions_taken populated for every item not from company files; sensitivity ≥5 scenarios including base; recommendations ≥3; all amounts in EUR.
             If any check fails, correct before emitting.
@@ -435,6 +443,9 @@ public class EstimateGenerationProcessor {
         sb.append("Item VI.a Overhead (OH): 6% of subtotal I-V. Item VI.b Contingency: 2% of subtotal I-V. Item VI.c Financial costs and Insurance: 3-5% of subtotal I-V.\n");
         sb.append("Always include: mobilization, construction, subcontracts (Supplies + Subcontracts separately), indirects, catering/accommodation, OH/contingency/financial costs.\n");
         sb.append("All amounts in EUR. Use the EUR/USD rate from the <exchange_rate> section for cambio_eur_usd and to convert any USD benchmark found in market research.\n");
+        sb.append("PRICE FORMULA (non-negotiable): VIII_PREZZO = VII_COSTO_TOTALE × 1.08 (cost-up, 8% margin on total cost). ");
+        sb.append("VIII must always be strictly greater than VII. ");
+        sb.append("Never set VIII by multiplying EUR/km × project_length — that is benchmark validation only.\n");
         sb.append("The report must be detailed and professional.\n");
         sb.append("</instructions>\n\n");
 
@@ -471,8 +482,8 @@ public class EstimateGenerationProcessor {
                     {"voce": "VI.a - Overhead / OH (6%)", "importo_usd": 0, "percentuale": 6.0, "note": "6% su subtotale I-V"},
                     {"voce": "VI.b - Contingency (2%)", "importo_usd": 0, "percentuale": 2.0, "note": "2% su subtotale I-V"},
                     {"voce": "VI.c - Costi Finanziari e Assicurazioni (4%)", "importo_usd": 0, "percentuale": 4.0, "note": "3-5% su subtotale I-V"},
-                    {"voce": "VII - COSTO TOTALE", "importo_usd": 0, "percentuale": 0.0, "note": ""},
-                    {"voce": "VIII - PREZZO (margine 8%)", "importo_usd": 0, "percentuale": 0.0, "note": ""}
+                    {"voce": "VII - COSTO TOTALE", "importo_usd": 0, "percentuale": 0.0, "note": "(I-V) + VI"},
+                    {"voce": "VIII - PREZZO (margine 8%)", "importo_usd": 0, "percentuale": 0.0, "note": "VII × 1.08 — MUST be > VII; never derived from EUR/km benchmark"}
                   ],
                   "kpi": {
                     "prezzo_totale_usd": 0,
